@@ -174,6 +174,7 @@ export default function App() {
 
   const t       = UI[lang] || UI.en;
   const activeQs = questions.filter(q => q.active !== false);
+  const currentQ = currentQId ? questions.find(q => q.id === currentQId) : activeQs[qIdx];
   const curAns  = answers.length === activeQs.length ? answers : activeQs.map(() => "");
 
   // ── Helpers ──────────────────────────────────────────────
@@ -226,7 +227,28 @@ export default function App() {
   };
 
   // ── Survey flow ───────────────────────────────────────────
-  const pickLang = (code) => { setLang(code); setQIdx(0); setAnswers([]); setScreen("survey"); };
+  const pickLang = async (code) => {
+    setLang(code);
+    setQIdx(0);
+    setAnswers([]);
+    // Check if there's an active session with a question
+    try {
+      const res = await fetch("/api/session");
+      const data = await res.json();
+      if (data.session_open && data.current_question_id) {
+        setCurrentQId(data.current_question_id);
+        setScreen("survey");
+      } else if (data.session_open) {
+        setWaitingNext(true);
+        setScreen("waiting");
+        startPolling();
+      } else {
+        setScreen("survey");
+      }
+    } catch {
+      setScreen("survey");
+    }
+  };
 
   const handleNext = () => {
     const updated = [...curAns]; updated[qIdx] = curAns[qIdx];
@@ -252,6 +274,67 @@ export default function App() {
   };
 
   // ── Questions management ──────────────────────────────────
+  // ── Session polling (participant side) ──
+  const startPolling = () => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch("/api/session");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.session_open) {
+          setSessionDone(true);
+          setWaitingNext(false);
+          clearInterval(interval);
+          return;
+        }
+        if (data.current_question_id) {
+          const q = questions.find(q => q.id === data.current_question_id);
+          if (q) {
+            setCurrentQId(data.current_question_id);
+            setWaitingNext(false);
+            setAnswers([]);
+            setScreen("survey");
+            clearInterval(interval);
+          }
+        }
+      } catch(e) { console.log("polling error", e); }
+    }, 3000);
+    setPollRef(interval);
+    return interval;
+  };
+
+  const stopPolling = () => { if (pollRef) clearInterval(pollRef); };
+
+  // ── Admin session controls ──
+  const openSession = async () => {
+    await fetch("/api/session", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ session_open: true, session_started_at: new Date().toISOString(), current_question_id: null, questions_shown: [] })
+    });
+    setSessionOpen(true);
+  };
+
+  const activateQuestion = async (q) => {
+    const res = await fetch("/api/session");
+    const data = await res.json();
+    const shown = data.questions_shown || [];
+    if (!shown.find(s => s.id === q.id)) shown.push({ id: q.id, en: q.en, activated_at: new Date().toISOString() });
+    await fetch("/api/session", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ current_question_id: q.id, questions_shown: shown })
+    });
+    setCurrentQId(q.id);
+  };
+
+  const closeSession = async () => {
+    await fetch("/api/session", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ session_open: false, session_ended_at: new Date().toISOString(), current_question_id: null })
+    });
+    setSessionOpen(false);
+    setCurrentQId(null);
+  };
+
   const toggleQ = (id) => setQuestions(prev=>prev.map(q=>q.id===id?{...q,active:!q.active}:q));
   const toggleAll = () => {
     const allOn = questions.every(q=>q.active!==false);
@@ -523,6 +606,57 @@ ${block}`;
         </div>
       )}
 
+      {/* ── WAITING SCREEN ── */}
+      {screen==="waiting" && (
+        <div className="center">
+          <div style={{maxWidth:"440px",width:"100%",textAlign:"center"}}>
+            <div style={{width:"80px",height:"80px",background:`linear-gradient(135deg,${DG},${G})`,
+              borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:"34px",margin:"0 auto 24px",boxShadow:"0 8px 24px rgba(39,174,96,.3)",
+              animation:"pulse 2s infinite"}}>⏳</div>
+            <style>{`@keyframes pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.08);}}`}</style>
+            <h2 style={{fontSize:"28px",fontWeight:"800",marginBottom:"10px",color:"#1a3a26"}}>
+              {lang==="zh"?"请稍等...":lang==="ja"?"お待ちください...":lang==="ko"?"잠시 기다려 주세요...":
+               lang==="th"?"กรุณารอสักครู่...":lang==="vi"?"Vui lòng chờ...":lang==="id"?"Mohon tunggu...":
+               lang==="fil"?"Mangyaring maghintay...":"Please wait..."}
+            </h2>
+            <p style={{color:"#7aaa88",fontSize:"15px"}}>
+              {lang==="zh"?"下一个问题即将到来":lang==="ja"?"次の質問をお待ちください":lang==="ko"?"다음 질문을 기다리는 중":
+               lang==="th"?"กำลังรอคำถามถัดไป":lang==="vi"?"Đang chờ câu hỏi tiếp theo":lang==="id"?"Menunggu pertanyaan berikutnya":
+               lang==="fil"?"Naghihintay sa susunod na tanong":"Next question coming soon"}
+            </p>
+            <div style={{marginTop:"24px",display:"flex",justifyContent:"center",gap:"6px"}}>
+              {[0,1,2].map(i=>(
+                <div key={i} style={{width:"8px",height:"8px",borderRadius:"50%",background:G,
+                  animation:`bounce 1.2s ${i*0.2}s infinite`,opacity:0.7}}/>
+              ))}
+            </div>
+            <style>{`@keyframes bounce{0%,100%{transform:translateY(0);}50%{transform:translateY(-8px);}}`}</style>
+          </div>
+        </div>
+      )}
+
+      {/* ── SESSION DONE SCREEN ── */}
+      {screen==="sessionDone" || sessionDone ? (
+        <div className="center">
+          <div style={{maxWidth:"440px",width:"100%",textAlign:"center"}}>
+            <div style={{width:"80px",height:"80px",background:`linear-gradient(135deg,${DG},${G})`,
+              borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:"34px",margin:"0 auto 24px",boxShadow:"0 8px 24px rgba(39,174,96,.3)"}}>🎉</div>
+            <h2 style={{fontSize:"32px",fontWeight:"800",marginBottom:"10px",color:"#1a3a26"}}>
+              {lang==="zh"?"感谢您的参与！":lang==="ja"?"ご参加ありがとうございました！":lang==="ko"?"참여해 주셔서 감사합니다!":
+               lang==="th"?"ขอบคุณสำหรับการมีส่วนร่วม!":lang==="vi"?"Cảm ơn bạn đã tham gia!":lang==="id"?"Terima kasih atas partisipasi Anda!":
+               lang==="fil"?"Salamat sa iyong pakikilahok!":"Thank you for participating!"}
+            </h2>
+            <p style={{color:"#7aaa88",fontSize:"15px"}}>
+              {lang==="zh"?"您的回答已记录。":lang==="ja"?"回答が記録されました。":lang==="ko"?"응답이 기록되었습니다.":
+               lang==="th"?"บันทึกคำตอบของคุณแล้ว":lang==="vi"?"Phản hồi của bạn đã được ghi lại.":lang==="id"?"Tanggapan Anda telah dicatat.":
+               lang==="fil"?"Naitala na ang iyong mga sagot.":"Your responses have been recorded."}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       {/* ── ADMIN ── */}
       {screen==="admin" && (
         <div style={{minHeight:"100vh",background:LG,padding:"28px 20px"}}>
@@ -553,6 +687,37 @@ ${block}`;
                 <div style={{fontSize:"10px",color:"#7aaa88",letterSpacing:"2px",textTransform:"uppercase",fontWeight:"600"}}>{s.l}</div>
               </div>
             ))}
+          </div>
+
+          {/* Session Controls */}
+          <div style={{maxWidth:"1020px",margin:"0 auto 20px",background:"#fff",
+            border:`2px solid ${BD}`,borderRadius:"14px",padding:"20px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"12px"}}>
+              <div>
+                <h3 style={{fontSize:"15px",fontWeight:"700",color:"#1a3a26"}}>Session Control</h3>
+                <p style={{fontSize:"12px",color:"#7aaa88",marginTop:"3px"}}>
+                  {sessionOpen ? "🟢 Session is OPEN — participants are waiting" : "🔴 Session is closed"}
+                  {currentQId && ` · Active Q: ${questions.find(q=>q.id===currentQId)?.en?.slice(0,40)}...`}
+                </p>
+              </div>
+              <div style={{display:"flex",gap:"10px",flexWrap:"wrap"}}>
+                {!sessionOpen ? (
+                  <button onClick={openSession} style={{padding:"10px 20px",borderRadius:"9px",
+                    background:`linear-gradient(135deg,${DG},${G})`,color:"#fff",border:"none",
+                    fontFamily:"inherit",fontSize:"13px",fontWeight:"700",cursor:"pointer",
+                    boxShadow:"0 4px 15px rgba(39,174,96,.25)"}}>
+                    🚀 Open Session
+                  </button>
+                ) : (
+                  <button onClick={closeSession} style={{padding:"10px 20px",borderRadius:"9px",
+                    background:"linear-gradient(135deg,#c0392b,#e74c3c)",color:"#fff",border:"none",
+                    fontFamily:"inherit",fontSize:"13px",fontWeight:"700",cursor:"pointer",
+                    boxShadow:"0 4px 15px rgba(192,57,43,.25)"}}>
+                    🔒 Close Session
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Tabs */}
@@ -687,7 +852,16 @@ ${block}`;
                               color:copiedRaw===q.id?"#1a6b3a":"#7aaa88",flexShrink:0}}>
                               {copiedRaw===q.id?"✓ Copied!":"📋 Copy"}
                             </button>
-                            <button onClick={()=>generateQSummary(q)} disabled={loadingSum===q.id}
+                            {sessionOpen && (
+                            <button onClick={()=>activateQuestion(q)} style={{
+                              padding:"9px 14px",borderRadius:"9px",fontSize:"12px",fontWeight:"700",
+                              cursor:"pointer",border:`2px solid ${currentQId===q.id?"#27ae60":"#d5ede0"}`,
+                              background:currentQId===q.id?"#d5f5e3":"#fff",
+                              color:currentQId===q.id?"#1a6b3a":"#7aaa88",flexShrink:0}}>
+                              {currentQId===q.id?"📡 Active":"▶ Activate"}
+                            </button>
+                          )}
+                          <button onClick={()=>generateQSummary(q)} disabled={loadingSum===q.id}
                               style={{padding:"9px 14px",borderRadius:"9px",fontSize:"12px",fontWeight:"700",
                                 cursor:loadingSum===q.id?"not-allowed":"pointer",border:`2px solid ${BD}`,
                                 background:"#fff",color:DG,flexShrink:0,opacity:loadingSum===q.id?.6:1}}>
