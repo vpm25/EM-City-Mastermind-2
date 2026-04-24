@@ -575,7 +575,7 @@ ${block}`;
             </div>
             <p style={{fontSize:"11px",letterSpacing:"3px",textTransform:"uppercase",color:G,marginBottom:"14px",fontWeight:"700"}}>{t.q} {String(qIdx+1).padStart(2,"0")}</p>
             <h2 style={{fontSize:"24px",fontWeight:"700",lineHeight:"1.5",marginBottom:"26px"}}>
-              {activeQs[qIdx]?.[lang] || activeQs[qIdx]?.en}
+              {(currentQId ? questions.find(q=>q.id===currentQId) : activeQs[qIdx])?.[lang] || (currentQId ? questions.find(q=>q.id===currentQId) : activeQs[qIdx])?.en || ""}
             </h2>
             <textarea value={curAns[qIdx]||""} onChange={e=>changeAnswer(e.target.value)}
               placeholder={t.ph} rows={6}
@@ -697,7 +697,7 @@ ${block}`;
                 <h3 style={{fontSize:"15px",fontWeight:"700",color:"#1a3a26"}}>Session Control</h3>
                 <p style={{fontSize:"12px",color:"#7aaa88",marginTop:"3px"}}>
                   {sessionOpen ? "🟢 Session is OPEN — participants are waiting" : "🔴 Session is closed"}
-                  {currentQId && ` · Active Q: ${questions.find(q=>q.id===currentQId)?.en?.slice(0,40)}...`}
+                  {currentQId ? ` · Active Q: ${(questions.find(q=>q.id===currentQId)?.en||"").slice(0,40)}...` : ""}
                 </p>
               </div>
               <div style={{display:"flex",gap:"10px",flexWrap:"wrap"}}>
