@@ -204,14 +204,25 @@ export default function App() {
   };
 
   const translateQuestion = async (englishText) => {
-    // Auto-translation works on Vercel (via /api/generate).
-    // In preview mode the sandbox blocks direct API calls from event handlers.
-    // For now, we store the question in English for all languages.
-    // The admin can edit each language manually via the Edit button.
-    return {
-      en:englishText, zh:englishText, ja:englishText, ko:englishText,
-      th:englishText, vi:englishText, id:englishText, fil:englishText,
-    };
+    setTranslating(true); setTransErr("");
+    const prompt = "Translate this question into 7 languages. Reply ONLY in this format, one per line:\nZH: translation\nJA: translation\nKO: translation\nTH: translation\nVI: translation\nID: translation\nFIL: translation\n\nQuestion: " + englishText;
+    try {
+      const response = await callAI(prompt, 1200);
+      const get = (code) => {
+        const lines = response.split("\n");
+        const line = lines.find(l => l.toUpperCase().startsWith(code+":"));
+        return line ? line.slice(code.length+1).trim() : englishText;
+      };
+      return {
+        en:englishText,
+        zh:get("ZH"), ja:get("JA"), ko:get("KO"), th:get("TH"),
+        vi:get("VI"), id:get("ID"), fil:get("FIL"),
+      };
+    } catch(e) {
+      setTransErr("Translation error: "+e.message);
+      return { en:englishText, zh:englishText, ja:englishText, ko:englishText,
+        th:englishText, vi:englishText, id:englishText, fil:englishText };
+    } finally { setTranslating(false); }
   };
 
   // ── Survey flow ───────────────────────────────────────────
