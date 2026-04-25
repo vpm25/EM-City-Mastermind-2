@@ -176,6 +176,7 @@ export default function App() {
   const [waitingNext, setWaitingNext]    = useState(false);
   const [sessionDone, setSessionDone]    = useState(false);
   const [pollRef,     setPollRef]        = useState(null);
+  const [participantToken] = useState(() => 'p_' + Math.random().toString(36).slice(2,10));
 
   const t       = UI[lang] || UI.en;
   const activeQs = questions.filter(q => q.active !== false);
@@ -253,7 +254,12 @@ export default function App() {
   const handleNext = async () => {
     if (qIdx < activeQs.length-1) { setQIdx(qIdx+1); return; }
     const info = LANGS.find(l=>l.code===lang);
-    const newResp = { lang, langName:info?.full||lang, flag:info?.flag||"", answers:[...curAns] };
+    const newResp = { 
+      lang, langName:info?.full||lang, flag:info?.flag||"", 
+      answers:[...curAns],
+      question_id: currentQId || null,
+      participant_token: participantToken
+    };
     try {
       const res = await fetch("/api/responses", {
         method:"POST", headers:{"Content-Type":"application/json"},
@@ -334,21 +340,21 @@ export default function App() {
           return;
         }
         const newQId = sessionData.current_question_id;
-        // If question changed, reset answer and go to survey
+        const newQId = sessionData.current_question_id;
         setCurrentQId(prev => {
           if (prev !== newQId) {
-            // Question changed - reset answer
             setAnswers([""]);
-            if (newQId) {
-              setScreen("survey");
-              setWaitingNext(false);
-            } else {
-              setScreen("waiting");
-              setWaitingNext(true);
-            }
           }
           return newQId;
         });
+        // Only show survey if session is open AND there is an active question
+        if (sessionData.session_open && newQId) {
+          setScreen("survey");
+          setWaitingNext(false);
+        } else {
+          setScreen("waiting");
+          setWaitingNext(true);
+        }
       } catch(e) { console.log("polling error", e); }
     }, 3000);
     setPollRef(interval);
@@ -490,7 +496,8 @@ export default function App() {
     if (!responses.length) return;
     setLoadingSum(q.id);
     const qPos = questions.indexOf(q);
-    const ans = responses.map(r=>`- Participant #${r.id} (${r.langName}): ${r.answers[qPos]||"(no answer)"}`).join("\n");
+    const qResps = responses.filter(r=>r.question_id===q.id||(r.question_id===null&&r.answers[qPos]));
+    const ans = qResps.map(r=>`- Participant #${r.id} (${r.langName}): ${r.question_id?r.answers[0]:r.answers[qPos]||"(no answer)"}`).join("\n");
     const prompt = `Summarize these survey responses for the question: "${q.en}"\n\nResponses:\n${ans}\n\nWrite 3-5 concise bullet points capturing key themes. Start each with "•".`;
     try {
       const raw = await callAI(prompt, 800);
@@ -952,7 +959,7 @@ ${block}`;
                   )}
 
                   {/* Questions with responses + per-question summary */}
-                  {questions.filter(q=>q.active!==false).map((q,qi)=>(
+                  {questions.map((q,qi)=>{ const qResponses = responses.filter(r=>r.question_id===q.id||(r.question_id===null&&r.answers[qi])); return (
                     <div key={q.id} style={{...card}}>
                       {/* Question header */}
                       <div style={{marginBottom:"16px",paddingBottom:"14px",borderBottom:`2px solid ${LG}`}}>
@@ -964,7 +971,7 @@ ${block}`;
 <div style={{display:"flex",gap:"8px",flexShrink:0}}>
                             <button onClick={()=>{
                               const sep = "\u2500".repeat(40);
-                              const lines = responses.map(r=>"Participant #"+r.id+" ("+r.langName+"):\n"+(r.answers[qi]||"(no answer)"));
+                              const lines = qResponses.map(r=>"Participant #"+r.id+" ("+r.langName+"):\n"+(r.question_id?r.answers[0]:r.answers[qi]||"(no answer)"));
                               const text = "QUESTION "+(qi+1)+": "+q.en+"\n"+sep+"\n"+lines.join("\n\n");
                               navigator.clipboard.writeText(text).then(()=>{
                                 setCopiedRaw(q.id); setTimeout(()=>setCopiedRaw(null),2000);
@@ -1017,7 +1024,7 @@ ${block}`;
 
                       {/* Answers */}
                       <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
-                        {responses.map((r,ri)=>(
+                        {qResponses.map((r,ri)=>(
                           <div key={r.id} style={{padding:"12px 14px",background:"#fff",borderRadius:"10px",
                             border:`2px solid ${LG}`}}>
                             <div style={{display:"flex",justifyContent:"space-between",marginBottom:"6px"}}>
@@ -1025,7 +1032,7 @@ ${block}`;
                               <span style={{fontSize:"10px",color:"#7aaa88"}}>{r.langName} · {r.time}</span>
                             </div>
                             <p style={{fontSize:"14px",color:"#3a5a46",lineHeight:"1.65"}}>
-                              {r.answers[qi]||<em style={{color:"#bbb"}}>No answer</em>}
+                              {r.question_id ? (r.answers[0]||<em style={{color:"#bbb"}}>No answer</em>) : (r.answers[qi]||<em style={{color:"#bbb"}}>No answer</em>)}
                             </p>
                           </div>
                         ))}
