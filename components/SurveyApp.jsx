@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const LANGS = [
   { code:"zh", name:"中文",            full:"Chinese (简体)",    flag:"🇨🇳" },
@@ -367,12 +367,47 @@ export default function App() {
     setCurrentQId(null);
   };
 
-  const toggleQ = (id) => setQuestions(prev=>prev.map(q=>q.id===id?{...q,active:!q.active}:q));
+  // ── Load questions from DB on mount ──
+  useEffect(() => {
+    fetch("/api/questions").then(r=>r.json()).then(data => {
+      if (Array.isArray(data) && data.length > 0) {
+        setQuestions(data.map(q => ({
+          id: q.id, active: q.active,
+          en: q.en, zh: q.zh, ja: q.ja, ko: q.ko,
+          th: q.th, vi: q.vi, id: q.id_lang, fil: q.fil,
+        })));
+      }
+    }).catch(() => {});
+  }, []);
+
+  // ── Sync questions to DB whenever admin changes them ──
+  const syncQuestions = async (qs) => {
+    try {
+      await fetch("/api/questions", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ questions: qs }),
+      });
+    } catch(e) { console.log("sync error", e); }
+  };
+
+  const toggleQ = (id) => {
+    const updated = questions.map(q=>q.id===id?{...q,active:!q.active}:q);
+    setQuestions(updated);
+    syncQuestions(updated);
+  };
   const toggleAll = () => {
     const allOn = questions.every(q=>q.active!==false);
-    setQuestions(prev=>prev.map(q=>({...q,active:!allOn})));
+    const updated = questions.map(q=>({...q,active:!allOn}));
+    setQuestions(updated);
+    syncQuestions(updated);
   };
-  const deleteQ = (id) => { if (questions.length>1) setQuestions(prev=>prev.filter(q=>q.id!==id)); };
+  const deleteQ = (id) => {
+    if (questions.length>1) {
+      const updated = questions.filter(q=>q.id!==id);
+      setQuestions(updated);
+      syncQuestions(updated);
+    }
+  };
 
   const toggleTransExpand = (id) => {
     setExpandedTrans(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
@@ -417,7 +452,11 @@ export default function App() {
     if (!editQ?.text.trim()) return;
     const t = await translateQuestion(editQ.text.trim());
     if (!t) return;
-    setQuestions(prev=>prev.map(q=>q.id===editQ.id?{id:q.id,active:q.active,...t}:q));
+    setQuestions(prev => {
+      const updated = prev.map(q=>q.id===editQ.id?{id:q.id,active:q.active,...t}:q);
+      syncQuestions(updated);
+      return updated;
+    });
     setEditQ(null);
   };
 
