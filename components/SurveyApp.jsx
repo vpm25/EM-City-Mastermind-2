@@ -171,6 +171,11 @@ export default function App() {
   const [pwErr,       setPwErr]       = useState(false);
   const [copied,      setCopied]      = useState(false);
   const [csvDone,     setCsvDone]     = useState(false);
+  const [sessionOpen, setSessionOpen]    = useState(false);
+  const [currentQId,  setCurrentQId]     = useState(null);
+  const [waitingNext, setWaitingNext]    = useState(false);
+  const [sessionDone, setSessionDone]    = useState(false);
+  const [pollRef,     setPollRef]        = useState(null);
 
   const t       = UI[lang] || UI.en;
   const activeQs = questions.filter(q => q.active !== false);
