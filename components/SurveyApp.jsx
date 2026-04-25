@@ -980,8 +980,8 @@ ${block}`;
                               padding:"9px 14px",borderRadius:"9px",fontSize:"12px",fontWeight:"700",
                               cursor:"pointer",border:`2px solid ${currentQId===q.id?"#27ae60":"#d5ede0"}`,
                               background:currentQId!=null&&currentQId===q.id?"#d5f5e3":"#fff",
-                              color:currentQId!=null&&currentQId===q.id?"#1a6b3a":"#7aaa88",flexShrink:0}}>
-                              {currentQId!=null&&currentQId===q.id?"📡 Active":"▶ Activate"}
+                              color:currentQId!=null&&currentQId===q.id?"#fff":"#7aaa88",flexShrink:0}}>
+                              {currentQId!=null&&currentQId===q.id?"⏹":"▶ Activate"}
                             </button>
                           )}
                           <button onClick={()=>generateQSummary(q)} disabled={loadingSum===q.id}
@@ -1047,9 +1047,6 @@ ${block}`;
                       {activeQs.length} active · {questions.length}/10 total · AI translates automatically
                     </p>
                   </div>
-                  <SmallBtn onClick={toggleAll} color={allActive?"red":"green"}>
-                    {allActive?"○ Deactivate All":"● Activate All"}
-                  </SmallBtn>
                 </div>
 
                 {/* Question list */}
