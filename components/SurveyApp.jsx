@@ -309,6 +309,8 @@ export default function App() {
   // ── Questions management ──────────────────────────────────
   // ── Session polling (participant side) ──
   const startPolling = () => {
+    // Clear any existing poll first
+    if (pollRef) clearInterval(pollRef);
     const interval = setInterval(async () => {
       try {
         const [sessionRes, questionsRes] = await Promise.all([
@@ -328,22 +330,24 @@ export default function App() {
             })));
           }
         }
-        // Check session state
+        // Session closed - show thank you
         if (!sessionData.session_open) {
           setSessionDone(true);
           setWaitingNext(false);
           clearInterval(interval);
           return;
         }
-        if (sessionData.current_question_id) {
-          setCurrentQId(sessionData.current_question_id);
+        const newQId = sessionData.current_question_id;
+        // Always update currentQId - this handles switching questions
+        setCurrentQId(newQId);
+        if (newQId) {
+          // There is an active question - show survey screen
+          setScreen(s => s === "waiting" ? "survey" : s);
           setWaitingNext(false);
-          setAnswers([]);
-          setScreen("survey");
-          clearInterval(interval);
         } else {
           // No active question - show waiting
           setScreen("waiting");
+          setWaitingNext(true);
         }
       } catch(e) { console.log("polling error", e); }
     }, 3000);
@@ -1105,7 +1109,7 @@ ${block}`;
                               background:currentQId===q.id?"#1a6b3a":"#fff",
                               display:"flex",alignItems:"center",justifyContent:"center",fontWeight:"700",
                               color:currentQId===q.id?"#fff":"#7aaa88"}}>
-                              {currentQId===q.id?"📡":"▶"}
+                              {currentQId===q.id?"⏹":"▶"}
                             </button>
 
 
