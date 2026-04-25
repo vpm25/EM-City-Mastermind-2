@@ -334,17 +334,21 @@ export default function App() {
           return;
         }
         const newQId = sessionData.current_question_id;
-        // Always update currentQId - this handles switching questions
-        setCurrentQId(newQId);
-        if (newQId) {
-          // There is an active question - show survey screen
-          setScreen(s => s === "waiting" ? "survey" : s);
-          setWaitingNext(false);
-        } else {
-          // No active question - show waiting
-          setScreen("waiting");
-          setWaitingNext(true);
-        }
+        // If question changed, reset answer and go to survey
+        setCurrentQId(prev => {
+          if (prev !== newQId) {
+            // Question changed - reset answer
+            setAnswers([""]);
+            if (newQId) {
+              setScreen("survey");
+              setWaitingNext(false);
+            } else {
+              setScreen("waiting");
+              setWaitingNext(true);
+            }
+          }
+          return newQId;
+        });
       } catch(e) { console.log("polling error", e); }
     }, 3000);
     setPollRef(interval);
