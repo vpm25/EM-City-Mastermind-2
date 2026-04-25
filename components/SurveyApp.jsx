@@ -648,7 +648,7 @@ ${block}`;
       )}
 
       {/* ── SURVEY ── */}
-      {screen==="survey" && activeQs.length>0 && (
+      {screen==="survey" && (currentQId || activeQs.length>0) && (
         <div className="center">
           <div style={{maxWidth:"600px",width:"100%"}}>
             {/* Back to language */}
@@ -662,8 +662,8 @@ ${block}`;
             {/* Progress */}
             <div style={{marginBottom:"32px"}}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:"10px"}}>
-                <span style={{fontSize:"11px",letterSpacing:"2px",textTransform:"uppercase",color:"#7aaa88",fontWeight:"600"}}>{t.q} {qIdx+1} / {activeQs.length}</span>
-                <span style={{fontSize:"12px",color:G,fontWeight:"700"}}>{Math.round(pct)}%</span>
+                <span style={{fontSize:"11px",letterSpacing:"2px",textTransform:"uppercase",color:"#7aaa88",fontWeight:"600"}}>{currentQId ? "" : `${t.q} ${qIdx+1} / ${activeQs.length}`}</span>
+                <span style={{fontSize:"12px",color:G,fontWeight:"700"}}>{currentQId ? "" : `${Math.round(pct)}%`}</span>
               </div>
               <div style={{height:"6px",background:BD,borderRadius:"6px",overflow:"hidden"}}>
                 <div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${DG},${G})`,borderRadius:"6px",transition:"width .5s ease"}} />
