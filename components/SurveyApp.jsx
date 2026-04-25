@@ -959,7 +959,7 @@ ${block}`;
                   )}
 
                   {/* Questions with responses + per-question summary */}
-                  {questions.map((q,qi)=>{ const qResponses = responses.filter(r=>r.question_id===q.id||(r.question_id===null&&r.answers[qi])); return (
+                  {questions.map((q,qi)=>{ const qResponses = responses.filter(r=>r.question_id===q.id||(r.question_id==null&&r.answers&&r.answers[qi])); const hasResponses = qResponses.length > 0; return (
                     <div key={q.id} style={{...card}}>
                       {/* Question header */}
                       <div style={{marginBottom:"16px",paddingBottom:"14px",borderBottom:`2px solid ${LG}`}}>
@@ -1038,8 +1038,7 @@ ${block}`;
                         ))}
                       </div>
                     </div>
-                  );})
-                }
+                  );}) }
               )}
             )}
 
