@@ -697,7 +697,7 @@ ${block}`;
                 <h3 style={{fontSize:"15px",fontWeight:"700",color:"#1a3a26"}}>Session Control</h3>
                 <p style={{fontSize:"12px",color:"#7aaa88",marginTop:"3px"}}>
                   {sessionOpen ? "🟢 Session is OPEN — participants are waiting" : "🔴 Session is closed"}
-                  {currentQId ? ` · Active Q: ${(questions.find(q=>q.id===currentQId)?.en||"").slice(0,40)}...` : ""}
+                  {currentQId != null ? ` · Active Q: ${(questions.find(q=>q.id===currentQId)||{en:""}).en.slice(0,40)}...` : ""}
                 </p>
               </div>
               <div style={{display:"flex",gap:"10px",flexWrap:"wrap"}}>
@@ -856,9 +856,9 @@ ${block}`;
                             <button onClick={()=>activateQuestion(q)} style={{
                               padding:"9px 14px",borderRadius:"9px",fontSize:"12px",fontWeight:"700",
                               cursor:"pointer",border:`2px solid ${currentQId===q.id?"#27ae60":"#d5ede0"}`,
-                              background:currentQId===q.id?"#d5f5e3":"#fff",
-                              color:currentQId===q.id?"#1a6b3a":"#7aaa88",flexShrink:0}}>
-                              {currentQId===q.id?"📡 Active":"▶ Activate"}
+                              background:currentQId!=null&&currentQId===q.id?"#d5f5e3":"#fff",
+                              color:currentQId!=null&&currentQId===q.id?"#1a6b3a":"#7aaa88",flexShrink:0}}>
+                              {currentQId!=null&&currentQId===q.id?"📡 Active":"▶ Activate"}
                             </button>
                           )}
                           <button onClick={()=>generateQSummary(q)} disabled={loadingSum===q.id}
