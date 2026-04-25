@@ -181,7 +181,7 @@ export default function App() {
   const activeQs = questions.filter(q => q.active !== false);
   const currentQ = currentQId ? questions.find(q => q.id === currentQId) : activeQs[qIdx];
   const getLang = (q, lang) => q?.[lang==='id'?'idLang':lang] || q?.en || '';
-  const curAns  = answers.length === activeQs.length ? answers : activeQs.map(() => "");
+  const curAns  = currentQId ? (answers.length > 0 ? answers : [""]) : (answers.length === activeQs.length ? answers : activeQs.map(() => ""));
 
   // ── Helpers ──────────────────────────────────────────────
   const callAI = async (prompt, maxTokens=1000, attempt=0) => {
@@ -286,7 +286,7 @@ export default function App() {
     startPolling();
   };
 
-  const changeAnswer = (val) => { const u=[...curAns]; u[qIdx]=val; setAnswers(u); };
+  const changeAnswer = (val) => { const u=[...curAns]; u[currentQId?0:qIdx]=val; setAnswers(u); };
   const reset = () => { setAnswers([]); setQIdx(0); setScreen("lang"); };
 
   // ── Admin auth ────────────────────────────────────────────
@@ -334,6 +334,8 @@ export default function App() {
         if (!sessionData.session_open) {
           setSessionDone(true);
           setWaitingNext(false);
+          setCurrentQId(null);
+          setScreen("sessionDone");
           clearInterval(interval);
           return;
         }
@@ -673,15 +675,15 @@ ${block}`;
             <h2 style={{fontSize:"24px",fontWeight:"700",lineHeight:"1.5",marginBottom:"26px"}}>
               {getLang(currentQId ? questions.find(q=>q.id===currentQId) : activeQs[qIdx], lang)}
             </h2>
-            <textarea value={curAns[qIdx]||""} onChange={e=>changeAnswer(e.target.value)}
+            <textarea value={curAns[currentQId?0:qIdx]||""} onChange={e=>changeAnswer(e.target.value)}
               placeholder={t.ph} rows={6}
               style={{width:"100%",background:"#fff",border:`2px solid ${BD}`,borderRadius:"12px",
                 padding:"20px",color:"#1a3a26",fontSize:"15px",lineHeight:"1.7",resize:"vertical",outline:"none"}}
               onFocus={e=>e.target.style.borderColor=G} onBlur={e=>e.target.style.borderColor=BD} />
-            <Btn className="nb" onClick={handleNext} disabled={!curAns[qIdx]?.trim()}
+            <Btn className="nb" onClick={handleNext} disabled={!curAns[currentQId?0:qIdx]?.trim()}
               style={{width:"100%",marginTop:"16px",padding:"17px",fontSize:"14px",
-                background:curAns[qIdx]?.trim()?`linear-gradient(135deg,${DG},${G})`:BD,
-                color:curAns[qIdx]?.trim()?"#fff":"#7aaa88",boxShadow:"none"}}>
+                background:curAns[currentQId?0:qIdx]?.trim()?`linear-gradient(135deg,${DG},${G})`:BD,
+                color:curAns[currentQId?0:qIdx]?.trim()?"#fff":"#7aaa88",boxShadow:"none"}}>
               {qIdx===activeQs.length-1 ? `${t.submit} ✓` : `${t.next} →`}
             </Btn>
           </div>
