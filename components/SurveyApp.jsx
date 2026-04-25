@@ -236,23 +236,23 @@ export default function App() {
     setLang(code);
     setQIdx(0);
     setAnswers([]);
-    // Check if there's an active session with a question
     try {
       const res = await fetch("/api/session");
       const data = await res.json();
       if (data.session_open && data.current_question_id) {
         setCurrentQId(data.current_question_id);
         setScreen("survey");
-      } else if (data.session_open) {
+        // Keep polling for next question after this one
+      } else {
+        // No active question yet — wait
         setWaitingNext(true);
         setScreen("waiting");
-        startPolling();
-      } else {
-        setScreen("survey");
       }
     } catch {
-      setScreen("survey");
+      setScreen("waiting");
     }
+    // Always start polling
+    startPolling();
   };
 
   const handleNext = async () => {
@@ -310,24 +310,36 @@ export default function App() {
   const startPolling = () => {
     const interval = setInterval(async () => {
       try {
-        const res = await fetch("/api/session");
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!data.session_open) {
+        const [sessionRes, questionsRes] = await Promise.all([
+          fetch("/api/session"),
+          fetch("/api/questions")
+        ]);
+        if (!sessionRes.ok) return;
+        const sessionData = await sessionRes.json();
+        // Update questions in real time
+        if (questionsRes.ok) {
+          const qData = await questionsRes.json();
+          if (Array.isArray(qData) && qData.length > 0) {
+            setQuestions(qData.map(q => ({
+              id: q.id, active: q.active,
+              en: q.en, zh: q.zh, ja: q.ja, ko: q.ko,
+              th: q.th, vi: q.vi, id: q.id_lang, fil: q.fil,
+            })));
+          }
+        }
+        // Check session state
+        if (!sessionData.session_open) {
           setSessionDone(true);
           setWaitingNext(false);
           clearInterval(interval);
           return;
         }
-        if (data.current_question_id) {
-          const q = questions.find(q => q.id === data.current_question_id);
-          if (q) {
-            setCurrentQId(data.current_question_id);
-            setWaitingNext(false);
-            setAnswers([]);
-            setScreen("survey");
-            clearInterval(interval);
-          }
+        if (sessionData.current_question_id) {
+          setCurrentQId(sessionData.current_question_id);
+          setWaitingNext(false);
+          setAnswers([]);
+          setScreen("survey");
+          clearInterval(interval);
         }
       } catch(e) { console.log("polling error", e); }
     }, 3000);
@@ -439,18 +451,19 @@ export default function App() {
   const addQuestion = async () => {
     if (!newQText.trim()||questions.length>=10) return;
     const txt = newQText.trim();
-    // Add immediately in English, then translate in background
     const tempId = Date.now();
-    const stub = {id:tempId,active:true,en:txt,zh:txt,ja:txt,ko:txt,th:txt,vi:txt,id_:txt,fil:txt,translating:true};
-    setQuestions(prev=>[...prev,stub]);
+    // Add stub immediately in English
+    const stub = {id:tempId,active:true,en:txt,zh:txt,ja:txt,ko:txt,th:txt,vi:txt,id:txt,fil:txt,translating:true};
+    const withStub = [...questions, stub];
+    setQuestions(withStub);
     setNewQText("");
-    // Now translate in background
+    // Translate in background
     const result = await translateQuestion(txt);
-    if (result) {
-      setQuestions(prev=>prev.map(q=>q.id===tempId?{...q,...result,translating:false}:q));
-    } else {
-      setQuestions(prev=>prev.map(q=>q.id===tempId?{...q,translating:false}:q));
-    }
+    const translated = result ? {...stub,...result,translating:false} : {...stub,translating:false};
+    const final = withStub.map(q=>q.id===tempId ? translated : q);
+    setQuestions(final);
+    // Sync to Supabase
+    await syncQuestions(final);
   };
 
   const saveEdit = async () => {
