@@ -151,7 +151,7 @@ export default function App() {
   const [qIdx,        setQIdx]        = useState(0);
   const [answers,     setAnswers]     = useState([]);
   const [responses,   setResponses]   = useState([]);
-  const [tab,         setTab]         = useState("responses");
+  const [tab,         setTab]         = useState("questions");
   const [questions,   setQuestions]   = useState(DEFAULT_QS);
   const [editQ,       setEditQ]       = useState(null);
   const [newQText,    setNewQText]    = useState("");
@@ -303,7 +303,7 @@ export default function App() {
         })));
       }
     } catch(e) { console.log("Could not load responses:", e); }
-    setScreen("admin"); setTab("responses");
+    setScreen("admin"); setTab("questions");
   };
 
   // ── Questions management ──────────────────────────────────
@@ -324,7 +324,7 @@ export default function App() {
             setQuestions(qData.map(q => ({
               id: q.id, active: q.active,
               en: q.en, zh: q.zh, ja: q.ja, ko: q.ko,
-              th: q.th, vi: q.vi, id: q.id_lang, fil: q.fil,
+              th: q.th, vi: q.vi, idLang: q.id_lang, fil: q.fil,
             })));
           }
         }
@@ -341,6 +341,9 @@ export default function App() {
           setAnswers([]);
           setScreen("survey");
           clearInterval(interval);
+        } else {
+          // No active question - show waiting
+          setScreen("waiting");
         }
       } catch(e) { console.log("polling error", e); }
     }, 3000);
@@ -646,7 +649,7 @@ ${block}`;
           <div style={{maxWidth:"600px",width:"100%"}}>
             {/* Back to language */}
             <div style={{marginBottom:"20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <button onClick={()=>setScreen("langSwitch")} style={{
+              <button onClick={()=>setScreen("lang")} style={{
                 background:"none",border:"none",color:"#7aaa88",fontSize:"13px",
                 cursor:"pointer",display:"flex",alignItems:"center",gap:"6px",padding:"0",fontFamily:"inherit"}}>
                 🌐 Change language
@@ -750,6 +753,11 @@ ${block}`;
               ))}
             </div>
             <style>{`@keyframes bounce{0%,100%{transform:translateY(0);}50%{transform:translateY(-8px);}}`}</style>
+            <button onClick={()=>setScreen("lang")} style={{
+              marginTop:"32px",background:"none",border:"none",color:"#b0d4b8",
+              fontSize:"13px",cursor:"pointer",fontFamily:"inherit"}}>
+              🌐 Change language
+            </button>
           </div>
         </div>
       )}
@@ -833,7 +841,7 @@ ${block}`;
 
           {/* Tabs */}
           <div style={{display:"flex",gap:"8px",maxWidth:"1020px",margin:"0 auto 20px",flexWrap:"wrap"}}>
-            {[["responses","📊 Responses & Results"],["questions","✏️ Questions"]].map(([t2,label])=>(
+            {[["questions","✏️ Questions"],["responses","📊 Results"]].map(([t2,label])=>(
               <button key={t2} onClick={()=>setTab(t2)} style={{
                 padding:"10px 22px",borderRadius:"9px",fontSize:"12px",fontWeight:"600",
                 cursor:"pointer",border:`2px solid ${tab===t2?DG:BD}`,transition:"all .2s",
