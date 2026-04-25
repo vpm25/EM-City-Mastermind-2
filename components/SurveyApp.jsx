@@ -236,24 +236,18 @@ export default function App() {
   const pickLang = async (code) => {
     setLang(code);
     setQIdx(0);
-    setAnswers([]);
+    setAnswers([""]);
+    // Always show waiting first, polling will update screen
+    setScreen("waiting");
+    startPolling();
     try {
       const res = await fetch("/api/session");
       const data = await res.json();
       if (data.session_open && data.current_question_id) {
         setCurrentQId(data.current_question_id);
         setScreen("survey");
-        // Keep polling for next question after this one
-      } else {
-        // No active question yet — wait
-        setWaitingNext(true);
-        setScreen("waiting");
       }
-    } catch {
-      setScreen("waiting");
-    }
-    // Always start polling
-    startPolling();
+    } catch {}
   };
 
   const handleNext = async () => {
