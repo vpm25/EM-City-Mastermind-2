@@ -180,6 +180,7 @@ export default function App() {
   const t       = UI[lang] || UI.en;
   const activeQs = questions.filter(q => q.active !== false);
   const currentQ = currentQId ? questions.find(q => q.id === currentQId) : activeQs[qIdx];
+  const getLang = (q, lang) => q?.[lang==='id'?'idLang':lang] || q?.en || '';
   const curAns  = answers.length === activeQs.length ? answers : activeQs.map(() => "");
 
   // ── Helpers ──────────────────────────────────────────────
@@ -222,12 +223,12 @@ export default function App() {
       return {
         en:englishText,
         zh:get("ZH"), ja:get("JA"), ko:get("KO"), th:get("TH"),
-        vi:get("VI"), id:get("ID"), fil:get("FIL"),
+        vi:get("VI"), idLang:get("ID"), fil:get("FIL"),
       };
     } catch(e) {
       setTransErr("Translation error: "+e.message);
       return { en:englishText, zh:englishText, ja:englishText, ko:englishText,
-        th:englishText, vi:englishText, id:englishText, fil:englishText };
+        th:englishText, vi:englishText, idLang:englishText, fil:englishText };
     } finally { setTranslating(false); }
   };
 
@@ -387,7 +388,7 @@ export default function App() {
           setQuestions(data.map(q => ({
             id: q.id, active: q.active,
             en: q.en, zh: q.zh, ja: q.ja, ko: q.ko,
-            th: q.th, vi: q.vi, id: q.id_lang, fil: q.fil,
+            th: q.th, vi: q.vi, idLang: q.id_lang, fil: q.fil,
           })));
         }
       }).catch(() => {});
@@ -453,7 +454,7 @@ export default function App() {
     const txt = newQText.trim();
     const tempId = Date.now();
     // Add stub immediately in English
-    const stub = {id:tempId,active:true,en:txt,zh:txt,ja:txt,ko:txt,th:txt,vi:txt,id:txt,fil:txt,translating:true};
+    const stub = {id:tempId,active:true,en:txt,zh:txt,ja:txt,ko:txt,th:txt,vi:txt,idLang:txt,fil:txt,translating:true};
     const withStub = [...questions, stub];
     setQuestions(withStub);
     setNewQText("");
@@ -664,7 +665,7 @@ ${block}`;
             </div>
             <p style={{fontSize:"11px",letterSpacing:"3px",textTransform:"uppercase",color:G,marginBottom:"14px",fontWeight:"700"}}>{t.q} {String(qIdx+1).padStart(2,"0")}</p>
             <h2 style={{fontSize:"24px",fontWeight:"700",lineHeight:"1.5",marginBottom:"26px"}}>
-              {(currentQId ? questions.find(q=>q.id===currentQId) : activeQs[qIdx])?.[lang] || (currentQId ? questions.find(q=>q.id===currentQId) : activeQs[qIdx])?.en || ""}
+              {getLang(currentQId ? questions.find(q=>q.id===currentQId) : activeQs[qIdx], lang)}
             </h2>
             <textarea value={curAns[qIdx]||""} onChange={e=>changeAnswer(e.target.value)}
               placeholder={t.ph} rows={6}
@@ -1060,6 +1061,16 @@ ${block}`;
                       {/* Buttons */}
                       {editQ?.id!==q.id && (
                         <div style={{display:"flex",flexDirection:"column",gap:"5px",flexShrink:0}}>
+                          {sessionOpen && (
+                            <button onClick={()=>activateQuestion(q)} title="Activate for participants" style={{
+                              width:"36px",height:"36px",borderRadius:"8px",fontSize:"14px",cursor:"pointer",
+                              border:`2px solid ${currentQId===q.id?"#27ae60":"#d5ede0"}`,
+                              background:currentQId===q.id?"#d5f5e3":"#fff",
+                              display:"flex",alignItems:"center",justifyContent:"center",fontWeight:"700",
+                              color:currentQId===q.id?"#1a6b3a":"#7aaa88"}}>
+                              {currentQId===q.id?"📡":"▶"}
+                            </button>
+                          )}
                           <button onClick={()=>toggleQ(q.id)} title={q.active===false?"Activate":"Deactivate"} style={{
                             width:"36px",height:"36px",borderRadius:"8px",fontSize:"16px",cursor:"pointer",border:"2px solid",
                             borderColor:q.active===false?"#faa":"#b0d4b8",
