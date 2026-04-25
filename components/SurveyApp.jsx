@@ -255,27 +255,54 @@ export default function App() {
     }
   };
 
-  const handleNext = () => {
-    const updated = [...curAns]; updated[qIdx] = curAns[qIdx];
-    if (qIdx < activeQs.length-1) { setQIdx(qIdx+1); }
-    else {
-      const info = LANGS.find(l=>l.code===lang);
+  const handleNext = async () => {
+    if (qIdx < activeQs.length-1) { setQIdx(qIdx+1); return; }
+    const info = LANGS.find(l=>l.code===lang);
+    const newResp = { lang, langName:info?.full||lang, flag:info?.flag||"", answers:[...curAns] };
+    try {
+      const res = await fetch("/api/responses", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(newResp),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setResponses(prev=>[...prev,{
+          id:data.id, lang:data.lang, langName:data.lang_name, flag:data.flag,
+          answers:data.answers,
+          time:new Date(data.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
+        }]);
+      }
+    } catch(e) {
+      // fallback to local if API fails
       setResponses(prev=>[...prev,{
         id:prev.length+1, lang, langName:info?.full||lang, flag:info?.flag||"",
         answers:[...curAns],
         time:new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
       }]);
-      setScreen("complete");
     }
+    setWaitingNext(true);
+    setScreen("waiting");
+    startPolling();
   };
 
   const changeAnswer = (val) => { const u=[...curAns]; u[qIdx]=val; setAnswers(u); };
   const reset = () => { setAnswers([]); setQIdx(0); setScreen("lang"); };
 
   // ── Admin auth ────────────────────────────────────────────
-  const tryLogin = () => {
-    if (pw==="admin123") { setScreen("admin"); setTab("responses"); }
-    else { setPwErr(true); setTimeout(()=>setPwErr(false),1600); }
+  const tryLogin = async () => {
+    if (pw!=="admin123") { setPwErr(true); setTimeout(()=>setPwErr(false),1600); return; }
+    try {
+      const res = await fetch("/api/responses");
+      if (res.ok) {
+        const data = await res.json();
+        setResponses(data.map(r=>({
+          id:r.id, lang:r.lang, langName:r.lang_name, flag:r.flag,
+          answers:r.answers,
+          time:new Date(r.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
+        })));
+      }
+    } catch(e) { console.log("Could not load responses:", e); }
+    setScreen("admin"); setTab("responses");
   };
 
   // ── Questions management ──────────────────────────────────
