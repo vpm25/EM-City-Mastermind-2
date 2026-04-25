@@ -819,19 +819,12 @@ ${block}`;
                 </p>
               </div>
               <div style={{display:"flex",gap:"10px",flexWrap:"wrap"}}>
-                {!sessionOpen ? (
-                  <button onClick={openSession} style={{padding:"10px 20px",borderRadius:"9px",
-                    background:`linear-gradient(135deg,${DG},${G})`,color:"#fff",border:"none",
-                    fontFamily:"inherit",fontSize:"13px",fontWeight:"700",cursor:"pointer",
-                    boxShadow:"0 4px 15px rgba(39,174,96,.25)"}}>
-                    🚀 Open Session
-                  </button>
-                ) : (
+                {sessionOpen && (
                   <button onClick={closeSession} style={{padding:"10px 20px",borderRadius:"9px",
                     background:"linear-gradient(135deg,#c0392b,#e74c3c)",color:"#fff",border:"none",
                     fontFamily:"inherit",fontSize:"13px",fontWeight:"700",cursor:"pointer",
                     boxShadow:"0 4px 15px rgba(192,57,43,.25)"}}>
-                    🔒 Close Session
+                    🔒 End Session
                   </button>
                 )}
               </div>
