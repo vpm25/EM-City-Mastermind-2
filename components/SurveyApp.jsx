@@ -351,23 +351,22 @@ export default function App() {
   const stopPolling = () => { if (pollRef) clearInterval(pollRef); };
 
   // ── Admin session controls ──
-  const openSession = async () => {
-    await fetch("/api/session", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ session_open: true, session_started_at: new Date().toISOString(), current_question_id: null, questions_shown: [] })
-    });
-    setSessionOpen(true);
-  };
-
   const activateQuestion = async (q) => {
+    // Auto-open session if not open + activate question in one step
     const res = await fetch("/api/session");
     const data = await res.json();
     const shown = data.questions_shown || [];
     if (!shown.find(s => s.id === q.id)) shown.push({ id: q.id, en: q.en, activated_at: new Date().toISOString() });
     await fetch("/api/session", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ current_question_id: q.id, questions_shown: shown })
+      body: JSON.stringify({
+        session_open: true,
+        session_started_at: data.session_started_at || new Date().toISOString(),
+        current_question_id: q.id,
+        questions_shown: shown
+      })
     });
+    setSessionOpen(true);
     setCurrentQId(q.id);
   };
 
@@ -646,11 +645,11 @@ ${block}`;
         <div className="center">
           <div style={{maxWidth:"600px",width:"100%"}}>
             {/* Back to language */}
-            <div style={{marginBottom:"20px"}}>
-              <button onClick={()=>setScreen("lang")} style={{
+            <div style={{marginBottom:"20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <button onClick={()=>setScreen("langSwitch")} style={{
                 background:"none",border:"none",color:"#7aaa88",fontSize:"13px",
                 cursor:"pointer",display:"flex",alignItems:"center",gap:"6px",padding:"0",fontFamily:"inherit"}}>
-                ← Change language
+                🌐 Change language
               </button>
             </div>
             {/* Progress */}
@@ -692,6 +691,35 @@ ${block}`;
             <h2 style={{fontSize:"34px",fontWeight:"800",marginBottom:"10px"}}>{t.thanks}</h2>
             <p style={{color:"#7aaa88",fontSize:"15px",marginBottom:"32px"}}>{t.saved}</p>
             <Btn onClick={reset}>{t.newP} →</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* ── LANG SWITCH ── */}
+      {screen==="langSwitch" && (
+        <div className="center">
+          <div style={{maxWidth:"720px",width:"100%"}}>
+            <div style={{textAlign:"center",marginBottom:"32px"}}>
+              <button onClick={()=>setScreen("survey")} style={{background:"none",border:"none",
+                color:"#7aaa88",fontSize:"13px",cursor:"pointer",marginBottom:"16px",display:"block",margin:"0 auto 16px"}}>
+                ← Back
+              </button>
+              <h2 style={{fontSize:"26px",fontWeight:"800",color:"#1a3a26"}}>Change Language</h2>
+              <p style={{color:"#7aaa88",fontSize:"14px",marginTop:"8px"}}>Your answers are saved — just pick a new language</p>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"12px"}}>
+              {LANGS.map(l=>(
+                <button key={l.code} className="lb" onClick={()=>{setLang(l.code);setScreen("survey");}} style={{
+                  background: lang===l.code?"#f0faf4":"#fff",
+                  border:`2px solid ${lang===l.code?G:BD}`,
+                  borderRadius:"14px",padding:"20px 10px",cursor:"pointer",textAlign:"center",
+                  color:"#1a3a26",boxShadow:"0 2px 8px rgba(27,107,58,.06)",transition:"all .2s"}}>
+                  <span style={{fontSize:"28px",display:"block",marginBottom:"8px"}}>{l.flag}</span>
+                  <span style={{fontSize:"13px",fontWeight:"700",display:"block"}}>{l.name}</span>
+                  {lang===l.code && <span style={{fontSize:"10px",color:G,display:"block",marginTop:"3px"}}>✓ Current</span>}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -1061,16 +1089,14 @@ ${block}`;
                       {/* Buttons */}
                       {editQ?.id!==q.id && (
                         <div style={{display:"flex",flexDirection:"column",gap:"5px",flexShrink:0}}>
-                          {sessionOpen && (
-                            <button onClick={()=>activateQuestion(q)} title="Activate for participants" style={{
+                          <button onClick={()=>activateQuestion(q)} title="Show to participants" style={{
                               width:"36px",height:"36px",borderRadius:"8px",fontSize:"14px",cursor:"pointer",
                               border:`2px solid ${currentQId===q.id?"#27ae60":"#d5ede0"}`,
-                              background:currentQId===q.id?"#d5f5e3":"#fff",
+                              background:currentQId===q.id?"#1a6b3a":"#fff",
                               display:"flex",alignItems:"center",justifyContent:"center",fontWeight:"700",
-                              color:currentQId===q.id?"#1a6b3a":"#7aaa88"}}>
+                              color:currentQId===q.id?"#fff":"#7aaa88"}}>
                               {currentQId===q.id?"📡":"▶"}
                             </button>
-                          )}
                           <button onClick={()=>toggleQ(q.id)} title={q.active===false?"Activate":"Deactivate"} style={{
                             width:"36px",height:"36px",borderRadius:"8px",fontSize:"16px",cursor:"pointer",border:"2px solid",
                             borderColor:q.active===false?"#faa":"#b0d4b8",
