@@ -417,7 +417,7 @@ export default function App() {
     const updated = questions.map(q=>({...q,active:!allOn}));
     setQuestions(updated);
     syncQuestions(updated);
-  };
+  }; // Note: toggleAll kept for Activate All button
   const deleteQ = (id) => {
     if (questions.length>1) {
       const updated = questions.filter(q=>q.id!==id);
@@ -453,7 +453,7 @@ export default function App() {
     const txt = newQText.trim();
     const tempId = Date.now();
     // Add stub immediately in English
-    const stub = {id:tempId,active:true,en:txt,zh:txt,ja:txt,ko:txt,th:txt,vi:txt,idLang:txt,fil:txt,translating:true};
+    const stub = {id:tempId,active:false,en:txt,zh:txt,ja:txt,ko:txt,th:txt,vi:txt,idLang:txt,fil:txt,translating:true};
     const withStub = [...questions, stub];
     setQuestions(withStub);
     setNewQText("");
@@ -1082,7 +1082,16 @@ ${block}`;
                       {/* Buttons */}
                       {editQ?.id!==q.id && (
                         <div style={{display:"flex",flexDirection:"column",gap:"5px",flexShrink:0}}>
-                          <button onClick={()=>activateQuestion(q)} title="Show to participants" style={{
+                          <button onClick={()=>{
+                              if(currentQId===q.id){
+                                // Deactivate - stop showing to participants
+                                fetch("/api/session",{method:"POST",headers:{"Content-Type":"application/json"},
+                                  body:JSON.stringify({current_question_id:null})});
+                                setCurrentQId(null);
+                              } else {
+                                activateQuestion(q);
+                              }
+                            }} title={currentQId===q.id?"Stop showing":"Show to participants"} style={{
                               width:"36px",height:"36px",borderRadius:"8px",fontSize:"14px",cursor:"pointer",
                               border:`2px solid ${currentQId===q.id?"#27ae60":"#d5ede0"}`,
                               background:currentQId===q.id?"#1a6b3a":"#fff",
@@ -1090,12 +1099,7 @@ ${block}`;
                               color:currentQId===q.id?"#fff":"#7aaa88"}}>
                               {currentQId===q.id?"📡":"▶"}
                             </button>
-                          <button onClick={()=>toggleQ(q.id)} title={q.active===false?"Activate":"Deactivate"} style={{
-                            width:"36px",height:"36px",borderRadius:"8px",fontSize:"16px",cursor:"pointer",border:"2px solid",
-                            borderColor:q.active===false?"#faa":"#b0d4b8",
-                            background:q.active===false?"#fff2f2":"#f0faf4",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                            {q.active===false?"○":"●"}
-                          </button>
+
 
                           <button onClick={()=>toggleTransExpand(q.id)} title="View/edit translations"
                             style={{width:"36px",height:"36px",borderRadius:"8px",fontSize:"16px",cursor:"pointer",
