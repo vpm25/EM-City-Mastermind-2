@@ -367,17 +367,22 @@ export default function App() {
     setCurrentQId(null);
   };
 
-  // ── Load questions from DB on mount ──
+  // ── Load + poll questions from DB every 5s ──
   useEffect(() => {
-    fetch("/api/questions").then(r=>r.json()).then(data => {
-      if (Array.isArray(data) && data.length > 0) {
-        setQuestions(data.map(q => ({
-          id: q.id, active: q.active,
-          en: q.en, zh: q.zh, ja: q.ja, ko: q.ko,
-          th: q.th, vi: q.vi, id: q.id_lang, fil: q.fil,
-        })));
-      }
-    }).catch(() => {});
+    const loadQs = () => {
+      fetch("/api/questions").then(r=>r.json()).then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setQuestions(data.map(q => ({
+            id: q.id, active: q.active,
+            en: q.en, zh: q.zh, ja: q.ja, ko: q.ko,
+            th: q.th, vi: q.vi, id: q.id_lang, fil: q.fil,
+          })));
+        }
+      }).catch(() => {});
+    };
+    loadQs();
+    const interval = setInterval(loadQs, 3000);
+    return () => clearInterval(interval);
   }, []);
 
   // ── Sync questions to DB whenever admin changes them ──
