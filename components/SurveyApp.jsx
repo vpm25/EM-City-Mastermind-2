@@ -177,6 +177,7 @@ export default function App() {
   const [sessionDone, setSessionDone]    = useState(false);
   const [pollRef,     setPollRef]        = useState(null);
   const [participantToken] = useState(() => 'p_' + Math.random().toString(36).slice(2,10));
+  const [sessionWasOpen, setSessionWasOpen] = useState(false);
 
   const t       = UI[lang] || UI.en;
   const activeQs = questions.filter(q => q.active !== false);
@@ -348,10 +349,21 @@ export default function App() {
           return newQId;
         });
         // Only show survey if session is open AND there is an active question
-        if (sessionData.session_open && newQId) {
-          setScreen("survey");
-          setWaitingNext(false);
+        if (sessionData.session_open) {
+          setSessionWasOpen(true);
+          if (newQId) {
+            setScreen("survey");
+            setWaitingNext(false);
+          } else {
+            setScreen("waiting");
+            setWaitingNext(true);
+          }
+        } else if (sessionWasOpen) {
+          // Session closed AFTER being open = thank you
+          setSessionDone(true);
+          setScreen("sessionDone");
         } else {
+          // Session never opened = just wait
           setScreen("waiting");
           setWaitingNext(true);
         }
