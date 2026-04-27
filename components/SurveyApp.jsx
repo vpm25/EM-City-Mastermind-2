@@ -239,13 +239,16 @@ export default function App() {
     setLang(code);
     setQIdx(0);
     setAnswers([""]);
-    // Always show waiting first, polling will update screen
+    setSessionDone(false);
+    setSessionWasOpen(false);
+    setCurrentQId(null);
     setScreen("waiting");
     startPolling();
     try {
       const res = await fetch("/api/session");
       const data = await res.json();
       if (data.session_open && data.current_question_id) {
+        setSessionWasOpen(true);
         setCurrentQId(data.current_question_id);
         setScreen("survey");
       }
