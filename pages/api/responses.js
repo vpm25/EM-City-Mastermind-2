@@ -49,15 +49,26 @@ export default async function handler(req, res) {
     return res.status(200).json(data);
   }
 
-  // ── DELETE: remove one response by id ─────────────────────────
+  // ── DELETE: remove one response by id, or all if no id ────────
   if (req.method === "DELETE") {
     const { id } = req.query;
-    if (!id) return res.status(400).json({ error: "Missing id" });
 
+    if (id) {
+      // Delete a single response
+      const { error } = await supabase
+        .from("survey_responses")
+        .delete()
+        .eq("id", id);
+
+      if (error) return res.status(500).json({ error: error.message });
+      return res.status(200).json({ ok: true });
+    }
+
+    // Delete ALL responses (Supabase requires a filter for safety; .neq matches everything)
     const { error } = await supabase
       .from("survey_responses")
       .delete()
-      .eq("id", id);
+      .neq("id", 0);
 
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ ok: true });
