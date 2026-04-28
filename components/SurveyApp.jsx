@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const LANGS = [
   { code:"zh", name:"中文",            full:"Chinese (简体)",    flag:"🇨🇳" },
@@ -177,7 +177,7 @@ export default function App() {
   const [sessionDone, setSessionDone]    = useState(false);
   const [pollRef,     setPollRef]        = useState(null);
   const [participantToken] = useState(() => 'p_' + Math.random().toString(36).slice(2,10));
-  const [sessionWasOpen, setSessionWasOpen] = useState(false);
+  const sessionWasOpenRef = useRef(false);
 
   const t       = UI[lang] || UI.en;
   const activeQs = questions.filter(q => q.active !== false);
@@ -240,7 +240,7 @@ export default function App() {
     setQIdx(0);
     setAnswers([""]);
     setSessionDone(false);
-    setSessionWasOpen(false);
+    sessionWasOpenRef.current = false;
     setCurrentQId(null);
     setScreen("waiting");
     startPolling();
@@ -248,7 +248,7 @@ export default function App() {
       const res = await fetch("/api/session");
       const data = await res.json();
       if (data.session_open && data.current_question_id) {
-        setSessionWasOpen(true);
+        sessionWasOpenRef.current = true;
         setCurrentQId(data.current_question_id);
         setScreen("survey");
       }
@@ -344,7 +344,6 @@ export default function App() {
           return;
         }
         const newQId = sessionData.current_question_id;
-        const newQId = sessionData.current_question_id;
         setCurrentQId(prev => {
           if (prev !== newQId) {
             setAnswers([""]);
@@ -353,7 +352,7 @@ export default function App() {
         });
         // Only show survey if session is open AND there is an active question
         if (sessionData.session_open) {
-          setSessionWasOpen(true);
+          sessionWasOpenRef.current = true;
           if (newQId) {
             setScreen("survey");
             setWaitingNext(false);
@@ -361,7 +360,7 @@ export default function App() {
             setScreen("waiting");
             setWaitingNext(true);
           }
-        } else if (sessionWasOpen) {
+        } else if (sessionWasOpenRef.current) {
           // Session closed AFTER being open = thank you
           setSessionDone(true);
           setScreen("sessionDone");
@@ -974,7 +973,12 @@ ${block}`;
                   )}
 
                   {/* Questions with responses + per-question summary */}
-                  {questions.map((q,qi)=>{ const qResponses = responses.filter(r=>r.question_id===q.id||(r.question_id==null&&r.answers&&r.answers[qi])); const hasResponses = qResponses.length > 0; return (
+                  {questions.map((q,qi)=>{
+                    const qResponses = responses.filter(r=>
+                      r.question_id===q.id || (r.question_id==null && r.answers && r.answers[qi])
+                    );
+                    if (qResponses.length === 0) return null;
+                    return (
                     <div key={q.id} style={{...card}}>
                       {/* Question header */}
                       <div style={{marginBottom:"16px",paddingBottom:"14px",borderBottom:`2px solid ${LG}`}}>
@@ -1053,7 +1057,9 @@ ${block}`;
                         ))}
                       </div>
                     </div>
-                  );}) }
+                    );
+                  })}
+                </div>
               )}
             )}
 
