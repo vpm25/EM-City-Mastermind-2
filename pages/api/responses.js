@@ -12,7 +12,6 @@ export default async function handler(req, res) {
       .from("survey_responses")
       .select("*")
       .order("created_at", { ascending: true });
-
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json(data);
   }
@@ -27,11 +26,9 @@ export default async function handler(req, res) {
       question_id,
       participant_token,
     } = req.body || {};
-
     if (!lang || !Array.isArray(answers)) {
       return res.status(400).json({ error: "Missing lang or answers" });
     }
-
     const { data, error } = await supabase
       .from("survey_responses")
       .insert([{
@@ -44,22 +41,30 @@ export default async function handler(req, res) {
       }])
       .select()
       .single();
-
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json(data);
   }
 
-  // ── DELETE: remove one response by id, or all if no id ────────
+  // ── DELETE: by id, by participant_token, or all ───────────────
   if (req.method === "DELETE") {
-    const { id } = req.query;
+    const { id, participant_token } = req.query;
 
+    // Delete a single response
     if (id) {
-      // Delete a single response
       const { error } = await supabase
         .from("survey_responses")
         .delete()
         .eq("id", id);
+      if (error) return res.status(500).json({ error: error.message });
+      return res.status(200).json({ ok: true });
+    }
 
+    // Delete all responses from a single participant
+    if (participant_token) {
+      const { error } = await supabase
+        .from("survey_responses")
+        .delete()
+        .eq("participant_token", participant_token);
       if (error) return res.status(500).json({ error: error.message });
       return res.status(200).json({ ok: true });
     }
@@ -69,7 +74,6 @@ export default async function handler(req, res) {
       .from("survey_responses")
       .delete()
       .neq("id", 0);
-
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ ok: true });
   }
