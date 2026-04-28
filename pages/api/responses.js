@@ -1,20 +1,15 @@
-// /api/responses.js  — Vercel Serverless Function + Supabase
-// Env vars needed in Vercel: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
+  process.env.SUPABASE_SERVICE_KEY
 );
-
-const TABLE = "survey_responses";
 
 export default async function handler(req, res) {
   // ── GET: list all responses (admin view) ──────────────────────
   if (req.method === "GET") {
     const { data, error } = await supabase
-      .from(TABLE)
+      .from("survey_responses")
       .select("*")
       .order("created_at", { ascending: true });
 
@@ -38,7 +33,7 @@ export default async function handler(req, res) {
     }
 
     const { data, error } = await supabase
-      .from(TABLE)
+      .from("survey_responses")
       .insert([{
         lang,
         lang_name: langName,
@@ -60,7 +55,7 @@ export default async function handler(req, res) {
     if (!id) return res.status(400).json({ error: "Missing id" });
 
     const { error } = await supabase
-      .from(TABLE)
+      .from("survey_responses")
       .delete()
       .eq("id", id);
 
@@ -68,6 +63,5 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
-  res.setHeader("Allow", "GET, POST, DELETE");
-  return res.status(405).end();
+  return res.status(405).json({ error: "Method not allowed" });
 }
