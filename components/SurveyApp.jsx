@@ -310,6 +310,15 @@ export default function App() {
       }
     } catch(e) { console.log("Could not load responses:", e); }
     setScreen("admin"); setTab("questions");
+    // Load current session state
+    try {
+      const sRes = await fetch("/api/session");
+      if (sRes.ok) {
+        const sData = await sRes.json();
+        setSessionOpen(sData.session_open || false);
+        setCurrentQId(sData.current_question_id || null);
+      }
+    } catch(e) {}
   };
 
   // ── Questions management ──────────────────────────────────
