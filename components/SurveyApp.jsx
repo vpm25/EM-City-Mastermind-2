@@ -175,7 +175,7 @@ export default function App() {
   const [currentQId,  setCurrentQId]     = useState(null);
   const [waitingNext, setWaitingNext]    = useState(false);
   const [sessionDone, setSessionDone]    = useState(false);
-  const [pollRef,     setPollRef]        = useState(null);
+  const pollRefHandle = useRef(null);
   const answeredQIdRef = useRef(null);
   const sessionWasOpenRef = useRef(false);
 
@@ -316,7 +316,7 @@ export default function App() {
   // ── Session polling (participant side) ──
   const startPolling = () => {
     // Clear any existing poll first
-    if (pollRef) clearInterval(pollRef);
+    if (pollRefHandle.current) clearInterval(pollRefHandle.current);
     const interval = setInterval(async () => {
       try {
         const [sessionRes, questionsRes] = await Promise.all([
@@ -380,11 +380,11 @@ export default function App() {
         }
       } catch(e) { console.log("polling error", e); }
     }, 3000);
-    setPollRef(interval);
+    pollRefHandle.current = interval;
     return interval;
   };
 
-  const stopPolling = () => { if (pollRef) clearInterval(pollRef); };
+  const stopPolling = () => { if (pollRefHandle.current) clearInterval(pollRefHandle.current); };
 
   // ── Admin session controls ──
   const activateQuestion = async (q) => {
