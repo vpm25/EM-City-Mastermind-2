@@ -256,9 +256,14 @@ export default function App() {
   };
 
   const handleNext = async () => {
-    // In live mode, always submit (only 1 question at a time)
     if (!currentQId && qIdx < activeQs.length-1) { setQIdx(qIdx+1); return; }
     const info = LANGS.find(l=>l.code===lang);
+    // Show waiting screen IMMEDIATELY
+    answeredQIdRef.current = currentQId;
+    setWaitingNext(true);
+    setScreen("waiting");
+    startPolling();
+    // Save to DB in background
     const newResp = { 
       lang, langName:info?.full||lang, flag:info?.flag||"", 
       answers:[...curAns],
@@ -274,22 +279,17 @@ export default function App() {
       if (res.ok) {
         setResponses(prev=>[...prev,{
           id:data.id, lang:data.lang, langName:data.lang_name, flag:data.flag,
-          answers:data.answers,
+          answers:data.answers, question_id:data.question_id,
           time:new Date(data.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
         }]);
       }
     } catch(e) {
-      // fallback to local if API fails
       setResponses(prev=>[...prev,{
         id:prev.length+1, lang, langName:info?.full||lang, flag:info?.flag||"",
-        answers:[...curAns],
+        answers:[...curAns], question_id:currentQId,
         time:new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
       }]);
     }
-    answeredQIdRef.current = currentQId;
-    setWaitingNext(true);
-    setScreen("waiting");
-    startPolling();
   };
 
   const changeAnswer = (val) => { const u=[...curAns]; u[currentQId?0:qIdx]=val; setAnswers(u); };
@@ -362,7 +362,8 @@ export default function App() {
         }
         const newQId = sessionData.current_question_id;
         setCurrentQId(prev => {
-          if (prev !== newQId) {
+          if (prev !== null && prev !== newQId) {
+            // Question actually changed - reset answer
             setAnswers([""]);
             answeredQIdRef.current = null;
           }
