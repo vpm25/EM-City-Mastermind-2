@@ -711,7 +711,7 @@ ${block}`;
       )}
 
       {/* ── SURVEY ── */}
-      {screen==="survey" && (currentQId || activeQs.length>0) && (
+      {screen==="survey" && currentQId && (
         <div className="center">
           <div style={{maxWidth:"600px",width:"100%"}}>
             {/* Back to language */}
