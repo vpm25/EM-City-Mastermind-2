@@ -753,6 +753,72 @@ export default function App() {
   };
 
   // ── Presentation ──────────────────────────────────────────
+  // ── Download presentation as .pptx file ──
+  // Loads pptxgenjs from CDN on demand so it doesn't bloat the initial bundle.
+  const loadPptxgen = () => new Promise((resolve, reject) => {
+    if (window.PptxGenJS) return resolve(window.PptxGenJS);
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js";
+    s.onload = () => resolve(window.PptxGenJS);
+    s.onerror = () => reject(new Error("Could not load pptxgenjs from CDN"));
+    document.head.appendChild(s);
+  });
+
+  const downloadPPTX = async () => {
+    if (!slides || !slides.slides) return;
+    try {
+      const PptxGenJS = await loadPptxgen();
+      const pptx = new PptxGenJS();
+      pptx.layout = "LAYOUT_WIDE"; // 13.33 x 7.5 in
+      pptx.title = slides.presentationTitle || "Survey Results";
+
+      const visible = slides.slides.filter((_, i) => !hiddenSlides.has(i));
+      visible.forEach((s, i) => {
+        const slide = pptx.addSlide();
+        slide.background = { color: "1F6B3A" }; // Same dark green as the in-app slide
+        // Category pill
+        if (s.category) {
+          slide.addText(s.category, {
+            x: 0.5, y: 0.4, w: 4, h: 0.4,
+            fontSize: 11, bold: true, color: "FFFFFF",
+            fontFace: "Arial", charSpacing: 4,
+          });
+        }
+        // Icon
+        if (s.icon) {
+          slide.addText(s.icon, { x: 0.5, y: 0.95, w: 1, h: 0.8, fontSize: 36 });
+        }
+        // Title
+        slide.addText(s.title || "", {
+          x: 0.5, y: 1.85, w: 12.3, h: 1.1,
+          fontSize: 32, bold: true, color: "FFFFFF", fontFace: "Arial",
+        });
+        // Bullet points
+        if (Array.isArray(s.points) && s.points.length) {
+          slide.addText(
+            s.points.map(p => ({ text: p, options: { bullet: { code: "2022" }, paraSpaceAfter: 12 } })),
+            {
+              x: 0.5, y: 3.1, w: 12.3, h: 4,
+              fontSize: 16, color: "FFFFFF", fontFace: "Arial", valign: "top",
+            }
+          );
+        }
+        // Slide number
+        slide.addText(`${i + 1}/${visible.length}`, {
+          x: 12.3, y: 7.1, w: 0.7, h: 0.3,
+          fontSize: 10, color: "FFFFFF", align: "right", italic: true,
+        });
+      });
+
+      const safeName = (slides.presentationTitle || "presentation")
+        .replace(/[^a-z0-9]+/gi, "_").toLowerCase();
+      await pptx.writeFile({ fileName: `${safeName}.pptx` });
+    } catch (e) {
+      alert("Could not download presentation: " + e.message);
+    }
+  };
+
+  // ── Generate AI Presentation ──
   const generatePresentation = async () => {
     if (!responses.length) return;
     setLoadingPres(true); setSlides(null); setSlideIdx(0); setHiddenSlides(new Set());
@@ -760,7 +826,7 @@ export default function App() {
       `Participant #${g.num} (${g.langName}):\n`+
       activeQs.map((q,i)=>`Q${i+1}: ${q.en}\nAnswer: ${answerFor(g, q, i)||"(no answer)"}`).join("\n")
     ).join("\n\n");
-    const prompt = `Create a professional presentation from ${responses.length} Asia Pacific survey responses.
+    const prompt = `Create a professional presentation from a survey of ${participantGroups.length} Asia Pacific participant${participantGroups.length===1?"":"s"} (${responses.length} total response${responses.length===1?"":"s"} across ${activeQs.length} question${activeQs.length===1?"":"s"}).
 
 STRUCTURE:
 1. One OVERVIEW slide (always first)
@@ -1136,9 +1202,17 @@ ${block}`;
 
                   {slides && !slides.error && slides.slides && (
                     <div style={{...card,marginBottom:"24px"}}>
-                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"16px",paddingBottom:"14px",borderBottom:`2px solid ${LG}`}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"16px",paddingBottom:"14px",borderBottom:`2px solid ${LG}`,gap:"12px",flexWrap:"wrap"}}>
                         <span style={{fontSize:"14px",fontWeight:"700",color:DG}}>📊 {slides.presentationTitle}</span>
-                        <span style={{fontSize:"11px",color:"#7aaa88"}}>{slides.slides.length - hiddenSlides.size} / {slides.slides.length} slides visible</span>
+                        <div style={{display:"flex",alignItems:"center",gap:"12px"}}>
+                          <button onClick={downloadPPTX} style={{
+                            padding:"7px 14px",borderRadius:"8px",fontSize:"11px",fontWeight:"700",
+                            cursor:"pointer",border:`2px solid ${G}`,background:"#fff",color:DG,
+                            display:"flex",alignItems:"center",gap:"6px"}}>
+                            ⬇ Download .pptx
+                          </button>
+                          <span style={{fontSize:"11px",color:"#7aaa88"}}>{slides.slides.length - hiddenSlides.size} / {slides.slides.length} slides visible</span>
+                        </div>
                       </div>
                       {/* Navigation */}
                       <div style={{display:"flex",alignItems:"center",gap:"12px",marginBottom:"16px"}}>
