@@ -425,6 +425,21 @@ export default function App() {
     setCurrentQId(null);
   };
 
+  // ── Load responses from DB ──
+  const loadResponses = async () => {
+    try {
+      const res = await fetch("/api/responses");
+      if (res.ok) {
+        const data = await res.json();
+        setResponses(data.map(r=>({
+          id:r.id, lang:r.lang, langName:r.lang_name, flag:r.flag,
+          answers:r.answers, question_id:r.question_id,
+          time:new Date(r.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
+        })));
+      }
+    } catch(e) {}
+  };
+
   // ── Delete single response ──
   const deleteResponse = async (id) => {
     if (!window.confirm(`Delete response #${id}?`)) return;
@@ -457,6 +472,14 @@ export default function App() {
       alert("✅ Table copied! Paste into Excel or Google Sheets.");
     });
   };
+
+  // ── Poll responses every 5s when in admin mode ──
+  useEffect(() => {
+    if (screen !== "admin") return;
+    loadResponses();
+    const interval = setInterval(loadResponses, 5000);
+    return () => clearInterval(interval);
+  }, [screen]);
 
   // ── Load + poll questions from DB every 5s ──
   useEffect(() => {
@@ -940,7 +963,12 @@ ${block}`;
               ) : (
                 <div>
                   {/* Results action buttons */}
-                  <div style={{display:"flex",gap:"10px",marginBottom:"16px",flexWrap:"wrap"}}>
+                  <div style={{display:"flex",gap:"10px",marginBottom:"16px",flexWrap:"wrap",alignItems:"center"}}>
+                    <button onClick={loadResponses} style={{
+                      padding:"9px 16px",borderRadius:"9px",fontSize:"12px",fontWeight:"600",
+                      cursor:"pointer",border:`2px solid ${G}`,background:LG,color:DG}}>
+                      🔄 Refresh
+                    </button>
                     <button onClick={copyAsTable} style={{
                       padding:"9px 16px",borderRadius:"9px",fontSize:"12px",fontWeight:"600",
                       cursor:"pointer",border:`2px solid ${BD}`,background:"#fff",color:DG}}>
