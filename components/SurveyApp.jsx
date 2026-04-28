@@ -520,19 +520,27 @@ export default function App() {
   const deleteResponse = async (id) => {
     if (!window.confirm(`Delete response #${id}?`)) return;
     try {
-      await fetch(`/api/responses?id=${id}`, { method:"DELETE" });
+      const res = await fetch(`/api/responses?id=${id}`, { method:"DELETE" });
+      if (!res.ok) {
+        const errText = await res.text().catch(()=>res.statusText);
+        throw new Error(errText || `HTTP ${res.status}`);
+      }
       setResponses(prev => prev.filter(r => r.id !== id));
-    } catch(e) { alert("Error: "+e.message); }
+    } catch(e) { alert("Could not delete response: "+e.message); }
   };
 
   // ── Delete all responses ──
   const deleteAllResponses = async () => {
     if (!window.confirm("Delete ALL responses? This cannot be undone.")) return;
     try {
-      await fetch("/api/responses", { method:"DELETE" });
+      const res = await fetch("/api/responses", { method:"DELETE" });
+      if (!res.ok) {
+        const errText = await res.text().catch(()=>res.statusText);
+        throw new Error(errText || `HTTP ${res.status}`);
+      }
       setResponses([]);
       setQSummaries({});
-    } catch(e) { alert("Error deleting responses: "+e.message); }
+    } catch(e) { alert("Could not delete responses: "+e.message); }
   };
 
   // ── Copy as table ──
