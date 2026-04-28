@@ -159,6 +159,7 @@ export default function App() {
   const [transErr,    setTransErr]    = useState("");
   const [expandedTrans, setExpandedTrans] = useState(new Set());
   const [editingTrans,  setEditingTrans]  = useState({}); // {qId_langCode: text}
+  const [retranslating, setRetranslating] = useState({}); // {qId_langCode: true}
   const [qSummaries,  setQSummaries]  = useState({});
   const [loadingSum,  setLoadingSum]  = useState(null);
   const [copiedSum,   setCopiedSum]   = useState(null); // question id
@@ -717,6 +718,32 @@ export default function App() {
   // a question object. Indonesian needs special handling because "id" collides
   // with the question's primary key — we use "idLang" instead.
   const fieldFor = (code) => code === "id" ? "idLang" : code;
+
+  // Re-translate ONE language for ONE question (used when the field is empty
+  // or fell back to English and the admin wants the IA to fill it in).
+  const retranslateOne = async (q, langCode) => {
+    const langNames = { zh:"Chinese", ja:"Japanese", ko:"Korean", th:"Thai",
+                        vi:"Vietnamese", id:"Indonesian", fil:"Filipino" };
+    const name = langNames[langCode];
+    if (!name) return;
+    const key = q.id + "_" + langCode;
+    setRetranslating(prev => ({ ...prev, [key]: true }));
+    try {
+      const prompt = `Translate the following question into ${name}. Reply with ONLY the translated text, no labels, no quotes, no explanations.\n\nQuestion: ${q.en}`;
+      const response = await callAI(prompt, 400);
+      const translated = String(response || "").trim().replace(/^["']|["']$/g, "");
+      if (translated) {
+        const field = fieldFor(langCode);
+        const updated = questions.map(qq => qq.id===q.id ? {...qq, [field]: translated} : qq);
+        setQuestions(updated);
+        await syncQuestions(updated);
+      }
+    } catch (e) {
+      alert("Could not translate: " + e.message);
+    } finally {
+      setRetranslating(prev => { const n = {...prev}; delete n[key]; return n; });
+    }
+  };
 
   const startEditTrans = (qId, langCode, currentText) => {
     setEditingTrans(prev => ({...prev, [qId+"_"+langCode]: currentText}));
@@ -1637,14 +1664,26 @@ ${block}`;
                                     </div>
                                   </div>
                                 ) : (
-                                  <p onClick={()=>startEditTrans(q.id,code,value||q.en)}
-                                    style={{fontSize:"13px",color:value&&value!==q.en?"#1a3a26":"#aaa",
-                                      lineHeight:"1.55",cursor:"pointer",padding:"4px 6px",borderRadius:"6px",
-                                      border:"2px solid transparent",transition:"all .2s"}}
-                                    onMouseEnter={e=>{e.target.style.borderColor=BD;e.target.style.background=LG;}}
-                                    onMouseLeave={e=>{e.target.style.borderColor="transparent";e.target.style.background="transparent";}}>
-                                    {value&&value!==q.en ? value : <em style={{color:"#bbb"}}>Same as English — click to translate</em>}
-                                  </p>
+                                  <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+                                    <p onClick={()=>startEditTrans(q.id,code,value||q.en)}
+                                      style={{fontSize:"13px",color:value&&value!==q.en?"#1a3a26":"#aaa",
+                                        lineHeight:"1.55",cursor:"pointer",padding:"4px 6px",borderRadius:"6px",
+                                        border:"2px solid transparent",transition:"all .2s",flex:1,margin:0}}
+                                      onMouseEnter={e=>{e.currentTarget.style.borderColor=BD;e.currentTarget.style.background=LG;}}
+                                      onMouseLeave={e=>{e.currentTarget.style.borderColor="transparent";e.currentTarget.style.background="transparent";}}>
+                                      {value&&value!==q.en ? value : <em style={{color:"#bbb"}}>Same as English — click to translate</em>}
+                                    </p>
+                                    {(!value || value===q.en) && (
+                                      <button onClick={()=>retranslateOne(q,code)}
+                                        disabled={retranslating[key]}
+                                        title={`Translate to ${name} with AI`}
+                                        style={{padding:"4px 10px",borderRadius:"6px",fontSize:"11px",fontWeight:"600",
+                                          background:LG,color:DG,border:`1px solid ${BD}`,cursor:retranslating[key]?"wait":"pointer",
+                                          flexShrink:0}}>
+                                        {retranslating[key] ? "..." : "🌐 AI"}
+                                      </button>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             </div>
