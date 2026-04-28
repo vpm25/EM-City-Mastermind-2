@@ -1683,6 +1683,16 @@ ${block}`;
                                         {retranslating[key] ? "..." : "🌐 AI"}
                                       </button>
                                     )}
+                                    {value && value!==q.en && (
+                                      <button onClick={()=>retranslateOne(q,code)}
+                                        disabled={retranslating[key]}
+                                        title={`Re-translate to ${name} with AI`}
+                                        style={{padding:"4px 8px",borderRadius:"6px",fontSize:"11px",fontWeight:"500",
+                                          background:"transparent",color:"#7aaa88",border:`1px solid ${BD}`,
+                                          cursor:retranslating[key]?"wait":"pointer",flexShrink:0,opacity:0.7}}>
+                                        {retranslating[key] ? "..." : "🔄"}
+                                      </button>
+                                    )}
                                   </div>
                                 )}
                               </div>
