@@ -442,8 +442,7 @@ export default function App() {
       `#${r.id}`, r.langName, r.time,
       ...questions.map((q,qi) => r.question_id ? (r.question_id===q.id ? r.answers[0]||"" : "") : (r.answers[qi]||""))
     ]);
-    const table = [headers, ...rows].map(row => row.join("	")).join("
-");
+    const table = [headers, ...rows].map(row => row.join("\t")).join("\n");
     navigator.clipboard.writeText(table).then(() => {
       alert("✅ Table copied! Paste into Excel or Google Sheets.");
     });
