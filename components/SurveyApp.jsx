@@ -415,6 +415,40 @@ export default function App() {
     setCurrentQId(null);
   };
 
+  // ── Delete single response ──
+  const deleteResponse = async (id) => {
+    if (!window.confirm(`Delete response #${id}?`)) return;
+    try {
+      await fetch(`/api/responses?id=${id}`, { method:"DELETE" });
+      setResponses(prev => prev.filter(r => r.id !== id));
+    } catch(e) { alert("Error: "+e.message); }
+  };
+
+  // ── Delete all responses ──
+  const deleteAllResponses = async () => {
+    if (!window.confirm("Delete ALL responses? This cannot be undone.")) return;
+    try {
+      await fetch("/api/responses", { method:"DELETE" });
+      setResponses([]);
+      setQSummaries({});
+    } catch(e) { alert("Error deleting responses: "+e.message); }
+  };
+
+  // ── Copy as table ──
+  const copyAsTable = () => {
+    // Build tab-separated table
+    const headers = ["Participant", "Language", "Time", ...questions.map((q,i)=>`Q${i+1}: ${q.en.slice(0,40)}`)];
+    const rows = responses.map(r => [
+      `#${r.id}`, r.langName, r.time,
+      ...questions.map((q,qi) => r.question_id ? (r.question_id===q.id ? r.answers[0]||"" : "") : (r.answers[qi]||""))
+    ]);
+    const table = [headers, ...rows].map(row => row.join("	")).join("
+");
+    navigator.clipboard.writeText(table).then(() => {
+      alert("✅ Table copied! Paste into Excel or Google Sheets.");
+    });
+  };
+
   // ── Load + poll questions from DB every 5s ──
   useEffect(() => {
     const loadQs = () => {
@@ -896,6 +930,20 @@ ${block}`;
                 </div>
               ) : (
                 <div>
+                  {/* Results action buttons */}
+                  <div style={{display:"flex",gap:"10px",marginBottom:"16px",flexWrap:"wrap"}}>
+                    <button onClick={copyAsTable} style={{
+                      padding:"9px 16px",borderRadius:"9px",fontSize:"12px",fontWeight:"600",
+                      cursor:"pointer",border:`2px solid ${BD}`,background:"#fff",color:DG}}>
+                      📊 Copy as Table
+                    </button>
+                    <button onClick={deleteAllResponses} style={{
+                      padding:"9px 16px",borderRadius:"9px",fontSize:"12px",fontWeight:"600",
+                      cursor:"pointer",border:"2px solid #fcc",background:"#fff8f0",color:"#c0392b"}}>
+                      🗑 Delete All Responses
+                    </button>
+                  </div>
+
                   {/* Generate Presentation button at top */}
                   <button onClick={generatePresentation} disabled={loadingPres} style={{
                     width:"100%",padding:"16px",border:"none",borderRadius:"12px",fontSize:"13px",
@@ -1055,9 +1103,15 @@ ${block}`;
                         {qResponses.map((r,ri)=>(
                           <div key={r.id} style={{padding:"12px 14px",background:"#fff",borderRadius:"10px",
                             border:`2px solid ${LG}`}}>
-                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:"6px"}}>
+                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:"6px",alignItems:"center"}}>
                               <span style={{fontSize:"11px",fontWeight:"700",color:"#1a3a26"}}>{r.flag} Participant #{r.id}</span>
-                              <span style={{fontSize:"10px",color:"#7aaa88"}}>{r.langName} · {r.time}</span>
+                              <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+                                <span style={{fontSize:"10px",color:"#7aaa88"}}>{r.langName} · {r.time}</span>
+                                <button onClick={()=>deleteResponse(r.id)} style={{
+                                  background:"none",border:"none",cursor:"pointer",
+                                  fontSize:"12px",color:"#faa",padding:"0",lineHeight:"1"}}
+                                  title="Delete this response">🗑</button>
+                              </div>
                             </div>
                             <p style={{fontSize:"14px",color:"#3a5a46",lineHeight:"1.65"}}>
                               {r.question_id ? (r.answers[0]||<em style={{color:"#bbb"}}>No answer</em>) : (r.answers[qi]||<em style={{color:"#bbb"}}>No answer</em>)}
