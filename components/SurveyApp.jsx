@@ -203,10 +203,11 @@ export default function App() {
 
   // ── Group all DB rows by participant — one entry per person with all their answers
   const participantGroups = (() => {
-    // Build a quick lookup so orphaned question_ids (from deleted/recreated questions)
-    // can fall back to matching by English text.
+    // Build text->id and id->text lookups for live questions
     const liveIds = new Set(questions.map(q => q.id));
-    const responsesByText = new Map(); // qId → answer text (last one wins)
+    const liveTexts = new Map(); // normalized text → question id
+    const norm = s => String(s || "").trim().toLowerCase();
+    questions.forEach(q => { if (q.en) liveTexts.set(norm(q.en), q.id); });
 
     const groups = new Map();
     for (const r of responses) {
@@ -214,53 +215,57 @@ export default function App() {
       if (!groups.has(key)) {
         groups.set(key, {
           num: participantNum(r),
-          token: key, // ← real participant_token, or "row_<id>" fallback for legacy
+          token: key,
           lang: r.lang,
           langName: r.langName,
           flag: r.flag,
           time: r.time,
-          answersByQId: {},
-          answersByIdx: [],
-          orphans: [], // [{ qid, answer }] — answers whose question_id no longer exists
+          answersByQId: {},   // qid (live) → answer
+          answersByIdx: [],   // for legacy rows with no question_id
+          orphans: [],        // [{ text, answer }] — answers that don't match any live question
         });
       }
       const g = groups.get(key);
       const answer = (r.answers && r.answers[0]) || "";
-      if (r.question_id) {
-        if (liveIds.has(r.question_id)) {
-          g.answersByQId[r.question_id] = answer;
-        } else if (answer) {
-          // Orphaned: question was deleted from survey_questions
-          g.orphans.push({ qid: r.question_id, answer });
+      if (!answer) continue;
+
+      // 1. Best match: snapshot text matches a live question's text
+      if (r.question_text) {
+        const matchedId = liveTexts.get(norm(r.question_text));
+        if (matchedId) {
+          g.answersByQId[matchedId] = answer;
+          continue;
         }
-      } else if (Array.isArray(r.answers)) {
-        // Legacy responses (no question_id): answers indexed by question position
-        r.answers.forEach((a, i) => { if (a) g.answersByIdx[i] = a; });
       }
+      // 2. Fallback: question_id still exists as a live question
+      //    (only safe if there's no question_text; with text snapshot it's authoritative)
+      if (!r.question_text && r.question_id && liveIds.has(r.question_id)) {
+        g.answersByQId[r.question_id] = answer;
+        continue;
+      }
+      // 3. Legacy row with no question_id and no text — index by position
+      if (!r.question_id && !r.question_text && Array.isArray(r.answers)) {
+        r.answers.forEach((a, i) => { if (a) g.answersByIdx[i] = a; });
+        continue;
+      }
+      // 4. Orphan: text doesn't match any current question (or question was deleted/edited)
+      g.orphans.push({
+        text: r.question_text || `(deleted question, id ${r.question_id})`,
+        answer,
+      });
     }
     return Array.from(groups.values()).sort((a, b) => a.num - b.num);
   })();
 
-  // Get a participant's answer for a given question. Tries:
-  //  1. exact question_id match
-  //  2. legacy index-based match
-  //  3. orphan slot fallback (when an old question was deleted/recreated, fill empty
-  //     question slots in order so the data isn't lost in the export)
+  // Get a participant's answer for a given question.
+  //  1. exact question_id match  → reliable
+  //  2. legacy index-based match → for very old data without question_id
+  //  Orphaned answers (question_id no longer exists) are NOT guessed into question
+  //  columns because the order can be misleading. They are surfaced separately via
+  //  group.orphans for export/inspection.
   const answerFor = (group, q, qIdx) => {
     if (group.answersByQId[q.id]) return group.answersByQId[q.id];
     if (group.answersByIdx[qIdx]) return group.answersByIdx[qIdx];
-    // Orphan fallback: fill earliest empty live-question slots with orphan answers in order
-    if (group.orphans && group.orphans.length) {
-      // Figure out which live-question positions are still empty for this participant
-      const emptyPositions = questions
-        .map((qq, i) => ({ qq, i }))
-        .filter(({ qq }) => !group.answersByQId[qq.id])
-        .map(({ i }) => i);
-      const slotIdx = emptyPositions.indexOf(qIdx);
-      if (slotIdx >= 0 && slotIdx < group.orphans.length) {
-        return group.orphans[slotIdx].answer;
-      }
-    }
     return "";
   };
 
@@ -349,10 +354,16 @@ export default function App() {
   const handleNext = async () => {
     if (!currentQId && qIdx < activeQs.length-1) { setQIdx(qIdx+1); return; }
     const info = LANGS.find(l=>l.code===lang);
+    // Snapshot the question text at submission time so the data stays
+    // self-describing even if the question is later edited or deleted.
+    const currentQuestion = currentQId
+      ? questions.find(q => q.id === currentQId)
+      : activeQs[qIdx];
     const newResp = {
       lang, langName:info?.full||lang, flag:info?.flag||"",
       answers:[...curAns],
       question_id: currentQId || null,
+      question_text: currentQuestion?.en || null,
       participant_token: participantToken
     };
     // Try to save FIRST, then transition. If POST fails, stay on the question and show error.
@@ -375,6 +386,7 @@ export default function App() {
       setResponses(prev=>[...prev,{
         id:data.id, lang:data.lang, langName:data.lang_name, flag:data.flag,
         answers:data.answers, question_id:data.question_id,
+        question_text:data.question_text,
         participant_token:data.participant_token,
         time:new Date(data.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
       }]);
@@ -410,6 +422,7 @@ export default function App() {
         setResponses(data.map(r=>({
           id:r.id, lang:r.lang, langName:r.lang_name, flag:r.flag,
           answers:r.answers, question_id:r.question_id,
+          question_text:r.question_text,
           participant_token:r.participant_token,
           time:new Date(r.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
         })));
@@ -541,6 +554,7 @@ export default function App() {
         setResponses(data.map(r=>({
           id:r.id, lang:r.lang, langName:r.lang_name, flag:r.flag,
           answers:r.answers, question_id:r.question_id,
+          question_text:r.question_text,
           participant_token:r.participant_token,
           time:new Date(r.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
         })));
@@ -605,11 +619,24 @@ export default function App() {
 
   // ── Copy as table ──
   const copyAsTable = () => {
-    const headers = ["Participant", "Language", "Time", ...questions.map((q,i)=>`Q${i+1}: ${q.en.slice(0,40)}`)];
-    const rows = participantGroups.map(g => [
-      `#${g.num}`, g.langName, g.time,
-      ...questions.map((q, qi) => answerFor(g, q, qi))
-    ]);
+    const hasOrphans = participantGroups.some(g => g.orphans && g.orphans.length);
+    const headers = [
+      "Participant", "Language", "Time",
+      ...questions.map((q,i)=>`Q${i+1}: ${q.en.slice(0,40)}`),
+      ...(hasOrphans ? ["Unmatched answers"] : []),
+    ];
+    const rows = participantGroups.map(g => {
+      const base = [
+        `#${g.num}`, g.langName, g.time,
+        ...questions.map((q, qi) => answerFor(g, q, qi)),
+      ];
+      if (hasOrphans) {
+        base.push(g.orphans && g.orphans.length
+          ? g.orphans.map(o => `${o.text} → ${o.answer}`).join(" | ")
+          : "");
+      }
+      return base;
+    });
     const table = [headers, ...rows].map(row => row.join("\t")).join("\n");
     navigator.clipboard.writeText(table).then(() => {
       setCopied(true);
@@ -767,18 +794,47 @@ export default function App() {
 
   // ── Export ────────────────────────────────────────────────
   const exportCSV = () => {
-    const esc = s=>`"${(s||"").replace(/"/g,'""')}"`;
-    const hdrs = ["#","Language","Time",...questions.map((_,i)=>`Q${i+1}`)];
-    const rows = participantGroups.map(g => [
-      g.num, g.langName, g.time,
-      ...questions.map((q, qi) => answerFor(g, q, qi))
-    ]);
-    const csv = [hdrs,...rows].map(r=>r.map(esc).join(",")).join("\n");
-    const a = Object.assign(document.createElement("a"),{
-      href:URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"})),
-      download:`survey_${new Date().toISOString().slice(0,10)}.csv`
-    });
-    a.click(); setCsvDone(true); setTimeout(()=>setCsvDone(false),2500);
+    if (!participantGroups.length) {
+      alert("No data to export yet.");
+      return;
+    }
+    try {
+      const esc = s => `"${String(s ?? "").replace(/"/g, '""')}"`;
+      const hasOrphans = participantGroups.some(g => g.orphans && g.orphans.length);
+      const hdrs = [
+        "#", "Language", "Time",
+        ...questions.map((q, i) => `Q${i+1}: ${q.en}`),
+        ...(hasOrphans ? ["Unmatched answers (from deleted questions)"] : []),
+      ];
+      const rows = participantGroups.map(g => {
+        const base = [
+          g.num, g.langName, g.time,
+          ...questions.map((q, qi) => answerFor(g, q, qi)),
+        ];
+        if (hasOrphans) {
+          base.push(g.orphans && g.orphans.length
+            ? g.orphans.map(o => `${o.text} → ${o.answer}`).join(" | ")
+            : "");
+        }
+        return base;
+      });
+      const csv = [hdrs, ...rows].map(r => r.map(esc).join(",")).join("\n");
+      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `survey_${new Date().toISOString().slice(0,10)}.csv`;
+      // Some browsers (Firefox, Safari) require the link to be in the DOM to trigger download.
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Free the blob URL after the click has been processed.
+      setTimeout(() => URL.revokeObjectURL(url), 100);
+      setCsvDone(true);
+      setTimeout(() => setCsvDone(false), 2500);
+    } catch (e) {
+      alert("Could not export CSV: " + e.message);
+    }
   };
 
   // ── Presentation ──────────────────────────────────────────
