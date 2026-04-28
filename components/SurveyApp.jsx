@@ -826,27 +826,41 @@ export default function App() {
       `Participant #${g.num} (${g.langName}):\n`+
       activeQs.map((q,i)=>`Q${i+1}: ${q.en}\nAnswer: ${answerFor(g, q, i)||"(no answer)"}`).join("\n")
     ).join("\n\n");
-    const prompt = `Create a professional presentation from a survey of ${participantGroups.length} Asia Pacific participant${participantGroups.length===1?"":"s"} (${responses.length} total response${responses.length===1?"":"s"} across ${activeQs.length} question${activeQs.length===1?"":"s"}).
 
-STRUCTURE:
-1. One OVERVIEW slide (always first)
-2. For each of the ${activeQs.length} questions, TWO slides:
-   a) INSIGHTS — key themes and patterns
-   b) SUMMARY — narrative synthesis of what respondents said
-3. OPTIONAL: 0-2 extra slides if data warrants it
+    const nP = participantGroups.length;
+    const nQ = activeQs.length;
+    const expectedSlides = 1 + (nQ * 2); // overview + (insights+summary per question)
 
-Questions:
-${activeQs.map((q,i)=>`Q${i+1}: ${q.en}`).join("\n")}
+    const prompt = `You are creating a presentation from REAL survey data. DO NOT invent or assume any numbers, demographics, cohort sizes, or details that are not explicitly in the data below.
 
-Return ONLY valid JSON (no markdown, no backticks):
-{"presentationTitle":"City Development Mastermind Program Results","slides":[{"category":"OVERVIEW","icon":"🌏","title":"...","points":["...","...","..."]},{"category":"Q1 INSIGHTS","icon":"...","title":"...","points":["...","...","..."]}]}
+DATA SUMMARY (use these exact numbers, do not change them):
+- Number of participants: ${nP}
+- Total questions answered: ${nQ}
+- Total individual responses: ${responses.length}
 
-Rules: write each point with as many words as needed for clarity. Be specific and faithful to actual responses.
+REQUIRED STRUCTURE — generate EXACTLY ${expectedSlides} slides in this order:
+1. ONE "OVERVIEW" slide summarizing the survey at a high level
+${activeQs.map((q,i)=>`${i*2+2}. "Q${i+1} INSIGHTS" slide — key themes from responses to: "${q.en}"
+${i*2+3}. "Q${i+1} SUMMARY" slide — narrative synthesis of what participants said about: "${q.en}"`).join("\n")}
 
-Responses:
+RULES:
+- Every quote, theme, and insight MUST come directly from the responses below.
+- If only ${nP} participant${nP===1?"":"s"} answered, say "${nP}", not a made-up bigger number.
+- If a question received no answer, say so honestly — do not fabricate themes.
+- Use specific words and phrases from the actual responses where possible.
+- 3-5 bullet points per slide. Each bullet should be a complete, specific thought.
+
+Return ONLY valid JSON (no markdown, no backticks, no commentary):
+{"presentationTitle":"City Development Mastermind Program Results","slides":[
+  {"category":"OVERVIEW","icon":"🌏","title":"...","points":["...","..."]},
+  {"category":"Q1 INSIGHTS","icon":"💡","title":"...","points":["...","..."]},
+  {"category":"Q1 SUMMARY","icon":"📝","title":"...","points":["...","..."]}
+]}
+
+ACTUAL SURVEY RESPONSES:
 ${block}`;
     try {
-      const raw = await callAI(prompt, 2000);
+      const raw = await callAI(prompt, 4000);
       const m = raw.match(/\{[\s\S]*\}/);
       if (!m) throw new Error("No JSON in response");
       setSlides(JSON.parse(m[0]));
