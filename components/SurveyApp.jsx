@@ -460,7 +460,7 @@ export default function App() {
             setQuestions(qData.map(q => ({
               id: q.id, active: q.active,
               en: q.en, zh: q.zh, ja: q.ja, ko: q.ko,
-              th: q.th, vi: q.vi, idLang: q.id_lang, fil: q.fil,
+              th: q.th, vi: q.vi, idLang: q.idLang ?? q.id_lang, fil: q.fil,
             })));
           }
         }
@@ -670,7 +670,7 @@ export default function App() {
           setQuestions(data.map(q => ({
             id: q.id, active: q.active,
             en: q.en, zh: q.zh, ja: q.ja, ko: q.ko,
-            th: q.th, vi: q.vi, idLang: q.id_lang, fil: q.fil,
+            th: q.th, vi: q.vi, idLang: q.idLang ?? q.id_lang, fil: q.fil,
           })));
         }
       }).catch(() => {});
@@ -713,6 +713,11 @@ export default function App() {
     setExpandedTrans(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
   };
 
+  // Map a UI language code ("id", "zh", "en", etc.) to the property name on
+  // a question object. Indonesian needs special handling because "id" collides
+  // with the question's primary key — we use "idLang" instead.
+  const fieldFor = (code) => code === "id" ? "idLang" : code;
+
   const startEditTrans = (qId, langCode, currentText) => {
     setEditingTrans(prev => ({...prev, [qId+"_"+langCode]: currentText}));
   };
@@ -721,8 +726,9 @@ export default function App() {
     const key = qId+"_"+langCode;
     const newText = editingTrans[key];
     if (newText !== undefined) {
+      const field = fieldFor(langCode);
       setQuestions(prev => {
-        const updated = prev.map(q => q.id===qId ? {...q, [langCode]: newText} : q);
+        const updated = prev.map(q => q.id===qId ? {...q, [field]: newText} : q);
         syncQuestions(updated); // ← persist to DB so the edit survives refresh
         return updated;
       });
@@ -907,31 +913,44 @@ export default function App() {
   const generatePresentation = async () => {
     if (!responses.length) return;
     setLoadingPres(true); setSlides(null); setSlideIdx(0); setHiddenSlides(new Set());
+
+    // Use the union of currently-active questions AND any question that has at least
+    // one answer. This way deactivating a question after the fact doesn't erase it
+    // from the presentation.
+    const answeredQIds = new Set(
+      participantGroups.flatMap(g => Object.keys(g.answersByQId).map(Number))
+    );
+    const presQs = questions.filter(q =>
+      q.active !== false || answeredQIds.has(q.id)
+    );
+
     const block = participantGroups.map(g =>
       `Participant #${g.num} (${g.langName}):\n`+
-      activeQs.map((q,i)=>`Q${i+1}: ${q.en}\nAnswer: ${answerFor(g, q, i)||"(no answer)"}`).join("\n")
+      presQs.map((q,i)=>`Q${i+1}: ${q.en}\nAnswer: ${answerFor(g, q, i)||"(no answer)"}`).join("\n")
     ).join("\n\n");
 
     const nP = participantGroups.length;
-    const nQ = activeQs.length;
+    const nQ = presQs.length;
+    const nResp = responses.length;
     const expectedSlides = 1 + (nQ * 2); // overview + (insights+summary per question)
 
     const prompt = `You are creating a presentation from REAL survey data. DO NOT invent or assume any numbers, demographics, cohort sizes, or details that are not explicitly in the data below.
 
 DATA SUMMARY (use these exact numbers, do not change them):
-- Number of participants: ${nP}
-- Total questions answered: ${nQ}
-- Total individual responses: ${responses.length}
+- ${nP} participant${nP===1?"":"s"} took part in the survey
+- ${nQ} question${nQ===1?"":"s"} were asked
+- ${nResp} individual response${nResp===1?"":"s"} were collected in total
+- A "response" is one answer to one question. With ${nP} participant${nP===1?"":"s"} answering ${nQ} question${nQ===1?"":"s"}, the maximum possible would be ${nP*nQ} responses; you got ${nResp}.
 
-REQUIRED STRUCTURE — generate EXACTLY ${expectedSlides} slides in this order:
-1. ONE "OVERVIEW" slide summarizing the survey at a high level
-${activeQs.map((q,i)=>`${i*2+2}. "Q${i+1} INSIGHTS" slide — key themes from responses to: "${q.en}"
+REQUIRED STRUCTURE — generate EXACTLY ${expectedSlides} slide${expectedSlides===1?"":"s"} in this order:
+1. ONE "OVERVIEW" slide summarizing the survey at a high level. Mention the number of participants and questions truthfully. Do NOT say things like "0 questions were formally answered" — every question listed below was asked, and the responses are the data you must summarize.
+${presQs.map((q,i)=>`${i*2+2}. "Q${i+1} INSIGHTS" slide — key themes from responses to: "${q.en}"
 ${i*2+3}. "Q${i+1} SUMMARY" slide — narrative synthesis of what participants said about: "${q.en}"`).join("\n")}
 
 RULES:
 - Every quote, theme, and insight MUST come directly from the responses below.
 - If only ${nP} participant${nP===1?"":"s"} answered, say "${nP}", not a made-up bigger number.
-- If a question received no answer, say so honestly — do not fabricate themes.
+- If a specific question received no answer from anyone, you can note that for that question — but do not generalise it to "no questions were answered".
 - Use specific words and phrases from the actual responses where possible.
 - 3-5 bullet points per slide. Each bullet should be a complete, specific thought.
 
@@ -1593,6 +1612,8 @@ ${block}`;
                           {code:"fil",flag:"🇵🇭",name:"Filipino"},
                         ].map(({code,flag,name}) => {
                           const key = q.id+"_"+code;
+                          const field = fieldFor(code);
+                          const value = q[field];
                           const isEditing = editingTrans[key] !== undefined;
                           return (
                             <div key={code} style={{padding:"10px 14px",borderBottom:`1px solid ${LG}`,
@@ -1616,13 +1637,13 @@ ${block}`;
                                     </div>
                                   </div>
                                 ) : (
-                                  <p onClick={()=>startEditTrans(q.id,code,q[code]||q.en)}
-                                    style={{fontSize:"13px",color:q[code]&&q[code]!==q.en?"#1a3a26":"#aaa",
+                                  <p onClick={()=>startEditTrans(q.id,code,value||q.en)}
+                                    style={{fontSize:"13px",color:value&&value!==q.en?"#1a3a26":"#aaa",
                                       lineHeight:"1.55",cursor:"pointer",padding:"4px 6px",borderRadius:"6px",
                                       border:"2px solid transparent",transition:"all .2s"}}
                                     onMouseEnter={e=>{e.target.style.borderColor=BD;e.target.style.background=LG;}}
                                     onMouseLeave={e=>{e.target.style.borderColor="transparent";e.target.style.background="transparent";}}>
-                                    {q[code]&&q[code]!==q.en ? q[code] : <em style={{color:"#bbb"}}>Same as English — click to translate</em>}
+                                    {value&&value!==q.en ? value : <em style={{color:"#bbb"}}>Same as English — click to translate</em>}
                                   </p>
                                 )}
                               </div>
