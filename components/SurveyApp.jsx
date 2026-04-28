@@ -176,7 +176,7 @@ export default function App() {
   const [waitingNext, setWaitingNext]    = useState(false);
   const [sessionDone, setSessionDone]    = useState(false);
   const [pollRef,     setPollRef]        = useState(null);
-  const [participantToken] = useState(() => 'p_' + Math.random().toString(36).slice(2,10));
+  const answeredQIdRef = useRef(null);
   const sessionWasOpenRef = useRef(false);
 
   const t       = UI[lang] || UI.en;
@@ -285,6 +285,7 @@ export default function App() {
         time:new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
       }]);
     }
+    answeredQIdRef.current = currentQId;
     setWaitingNext(true);
     setScreen("waiting");
     startPolling();
@@ -353,13 +354,14 @@ export default function App() {
         setCurrentQId(prev => {
           if (prev !== newQId) {
             setAnswers([""]);
+            answeredQIdRef.current = null;
           }
           return newQId;
         });
         // Only show survey if session is open AND there is an active question
         if (sessionData.session_open) {
           sessionWasOpenRef.current = true;
-          if (newQId) {
+          if (newQId && newQId !== answeredQIdRef.current) {
             setScreen("survey");
             setWaitingNext(false);
           } else {
