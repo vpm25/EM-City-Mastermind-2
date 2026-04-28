@@ -214,6 +214,7 @@ export default function App() {
       if (!groups.has(key)) {
         groups.set(key, {
           num: participantNum(r),
+          token: key, // ← real participant_token, or "row_<id>" fallback for legacy
           lang: r.lang,
           langName: r.langName,
           flag: r.flag,
@@ -558,6 +559,34 @@ export default function App() {
       }
       setResponses(prev => prev.filter(r => r.id !== id));
     } catch(e) { alert("Could not delete response: "+e.message); }
+  };
+
+  // ── Delete all responses from one participant (by token) ──
+  const deleteParticipant = async (group) => {
+    // Confirm with the participant number for clarity
+    if (!window.confirm(`Delete ALL responses from Participant #${group.num}? This cannot be undone.`)) return;
+    // group.token is set in participantGroups; for legacy rows without a token we fall back to row_<id>
+    const token = group.token;
+    try {
+      let res;
+      if (token && !token.startsWith("row_")) {
+        res = await fetch(`/api/responses?participant_token=${encodeURIComponent(token)}`, { method:"DELETE" });
+      } else {
+        // Legacy participant — token is fake (row_<id>); delete just that row by id
+        const legacyId = parseInt(token.replace("row_",""), 10);
+        res = await fetch(`/api/responses?id=${legacyId}`, { method:"DELETE" });
+      }
+      if (!res.ok) {
+        const errText = await res.text().catch(()=>res.statusText);
+        throw new Error(errText || `HTTP ${res.status}`);
+      }
+      // Optimistic local cleanup; the next poll will reconcile anyway
+      setResponses(prev => prev.filter(r =>
+        token && !token.startsWith("row_")
+          ? r.participant_token !== token
+          : r.id !== parseInt(token.replace("row_",""), 10)
+      ));
+    } catch(e) { alert("Could not delete participant: "+e.message); }
   };
 
   // ── Delete all responses ──
@@ -1291,9 +1320,14 @@ ${block}`;
 
                   {/* Questions with responses + per-question summary */}
                   {questions.map((q,qi)=>{
-                    const qResponses = responses.filter(r=>
-                      r.question_id===q.id || (r.question_id==null && r.answers && r.answers[qi])
-                    );
+                    // Build per-question answers using participantGroups so orphaned/legacy
+                    // responses also show up (matches the Copy as Table behaviour)
+                    const qResponses = participantGroups
+                      .map(g => ({
+                        g,
+                        answer: answerFor(g, q, qi),
+                      }))
+                      .filter(({ answer }) => answer && String(answer).trim());
                     if (qResponses.length === 0) return null;
                     return (
                     <div key={q.id} style={{...card}}>
@@ -1307,7 +1341,7 @@ ${block}`;
 <div style={{display:"flex",gap:"8px",flexShrink:0}}>
                             <button onClick={()=>{
                               const sep = "\u2500".repeat(40);
-                              const lines = qResponses.map(r=>"Participant #"+participantNum(r)+" ("+r.langName+"):\n"+(r.question_id?r.answers[0]:r.answers[qi]||"(no answer)"));
+                              const lines = qResponses.map(({g,answer})=>"Participant #"+g.num+" ("+g.langName+"):\n"+answer);
                               const text = "QUESTION "+(qi+1)+": "+q.en+"\n"+sep+"\n"+lines.join("\n\n");
                               navigator.clipboard.writeText(text).then(()=>{
                                 setCopiedRaw(q.id); setTimeout(()=>setCopiedRaw(null),2000);
@@ -1360,21 +1394,21 @@ ${block}`;
 
                       {/* Answers */}
                       <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
-                        {qResponses.map((r,ri)=>(
-                          <div key={r.id} style={{padding:"12px 14px",background:"#fff",borderRadius:"10px",
+                        {qResponses.map(({g, answer},ri)=>(
+                          <div key={`${g.num}-${q.id}`} style={{padding:"12px 14px",background:"#fff",borderRadius:"10px",
                             border:`2px solid ${LG}`}}>
                             <div style={{display:"flex",justifyContent:"space-between",marginBottom:"6px",alignItems:"center"}}>
-                              <span style={{fontSize:"11px",fontWeight:"700",color:"#1a3a26"}}>{r.flag} Participant #{participantNum(r)}</span>
+                              <span style={{fontSize:"11px",fontWeight:"700",color:"#1a3a26"}}>{g.flag} Participant #{g.num}</span>
                               <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
-                                <span style={{fontSize:"10px",color:"#7aaa88"}}>{r.langName} · {r.time}</span>
-                                <button onClick={()=>deleteResponse(r.id)} style={{
+                                <span style={{fontSize:"10px",color:"#7aaa88"}}>{g.langName} · {g.time}</span>
+                                <button onClick={()=>deleteParticipant(g)} style={{
                                   background:"none",border:"none",cursor:"pointer",
                                   fontSize:"12px",color:"#faa",padding:"0",lineHeight:"1"}}
-                                  title="Delete this response">🗑</button>
+                                  title={`Delete all responses from Participant #${g.num}`}>🗑</button>
                               </div>
                             </div>
                             <p style={{fontSize:"14px",color:"#3a5a46",lineHeight:"1.65"}}>
-                              {r.question_id ? (r.answers[0]||<em style={{color:"#bbb"}}>No answer</em>) : (r.answers[qi]||<em style={{color:"#bbb"}}>No answer</em>)}
+                              {answer}
                             </p>
                           </div>
                         ))}
