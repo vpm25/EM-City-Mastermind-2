@@ -256,7 +256,8 @@ export default function App() {
   };
 
   const handleNext = async () => {
-    if (qIdx < activeQs.length-1) { setQIdx(qIdx+1); return; }
+    // In live mode, always submit (only 1 question at a time)
+    if (!currentQId && qIdx < activeQs.length-1) { setQIdx(qIdx+1); return; }
     const info = LANGS.find(l=>l.code===lang);
     const newResp = { 
       lang, langName:info?.full||lang, flag:info?.flag||"", 
@@ -711,7 +712,7 @@ ${block}`;
               style={{width:"100%",marginTop:"16px",padding:"17px",fontSize:"14px",
                 background:curAns[currentQId?0:qIdx]?.trim()?`linear-gradient(135deg,${DG},${G})`:BD,
                 color:curAns[currentQId?0:qIdx]?.trim()?"#fff":"#7aaa88",boxShadow:"none"}}>
-              {qIdx===activeQs.length-1 ? `${t.submit} ✓` : `${t.next} →`}
+              {currentQId ? `${t.submit} ✓` : qIdx===activeQs.length-1 ? `${t.submit} ✓` : `${t.next} →`}
             </Btn>
           </div>
         </div>
