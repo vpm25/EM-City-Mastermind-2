@@ -203,6 +203,11 @@ export default function App() {
 
   // ── Group all DB rows by participant — one entry per person with all their answers
   const participantGroups = (() => {
+    // Build a quick lookup so orphaned question_ids (from deleted/recreated questions)
+    // can fall back to matching by English text.
+    const liveIds = new Set(questions.map(q => q.id));
+    const responsesByText = new Map(); // qId → answer text (last one wins)
+
     const groups = new Map();
     for (const r of responses) {
       const key = r.participant_token || `row_${r.id}`;
@@ -215,11 +220,18 @@ export default function App() {
           time: r.time,
           answersByQId: {},
           answersByIdx: [],
+          orphans: [], // [{ qid, answer }] — answers whose question_id no longer exists
         });
       }
       const g = groups.get(key);
+      const answer = (r.answers && r.answers[0]) || "";
       if (r.question_id) {
-        g.answersByQId[r.question_id] = (r.answers && r.answers[0]) || "";
+        if (liveIds.has(r.question_id)) {
+          g.answersByQId[r.question_id] = answer;
+        } else if (answer) {
+          // Orphaned: question was deleted from survey_questions
+          g.orphans.push({ qid: r.question_id, answer });
+        }
       } else if (Array.isArray(r.answers)) {
         // Legacy responses (no question_id): answers indexed by question position
         r.answers.forEach((a, i) => { if (a) g.answersByIdx[i] = a; });
@@ -228,9 +240,28 @@ export default function App() {
     return Array.from(groups.values()).sort((a, b) => a.num - b.num);
   })();
 
-  // Get a participant's answer for a given question (handles both new and legacy data)
-  const answerFor = (group, q, qIdx) =>
-    group.answersByQId[q.id] || group.answersByIdx[qIdx] || "";
+  // Get a participant's answer for a given question. Tries:
+  //  1. exact question_id match
+  //  2. legacy index-based match
+  //  3. orphan slot fallback (when an old question was deleted/recreated, fill empty
+  //     question slots in order so the data isn't lost in the export)
+  const answerFor = (group, q, qIdx) => {
+    if (group.answersByQId[q.id]) return group.answersByQId[q.id];
+    if (group.answersByIdx[qIdx]) return group.answersByIdx[qIdx];
+    // Orphan fallback: fill earliest empty live-question slots with orphan answers in order
+    if (group.orphans && group.orphans.length) {
+      // Figure out which live-question positions are still empty for this participant
+      const emptyPositions = questions
+        .map((qq, i) => ({ qq, i }))
+        .filter(({ qq }) => !group.answersByQId[qq.id])
+        .map(({ i }) => i);
+      const slotIdx = emptyPositions.indexOf(qIdx);
+      if (slotIdx >= 0 && slotIdx < group.orphans.length) {
+        return group.orphans[slotIdx].answer;
+      }
+    }
+    return "";
+  };
 
   // ── Helpers ──────────────────────────────────────────────
   const callAI = async (prompt, maxTokens=1000, attempt=0) => {
