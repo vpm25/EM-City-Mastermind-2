@@ -176,6 +176,7 @@ export default function App() {
   const [waitingNext, setWaitingNext]    = useState(false);
   const [sessionDone, setSessionDone]    = useState(false);
   const [participantToken, setParticipantToken] = useState(null);
+  const [submitError, setSubmitError]    = useState(null); // ← surface failed submits to the user
   const pollRefHandle = useRef(null);
   const answeredQIdRef = useRef(null);
   const sessionWasOpenRef = useRef(false);
@@ -199,6 +200,37 @@ export default function App() {
   })();
   const participantNum = (r) => participantNumberMap.get(r.participant_token || `row_${r.id}`) || r.id;
   const uniqueParticipantCount = participantNumberMap.size;
+
+  // ── Group all DB rows by participant — one entry per person with all their answers
+  const participantGroups = (() => {
+    const groups = new Map();
+    for (const r of responses) {
+      const key = r.participant_token || `row_${r.id}`;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          num: participantNum(r),
+          lang: r.lang,
+          langName: r.langName,
+          flag: r.flag,
+          time: r.time,
+          answersByQId: {},
+          answersByIdx: [],
+        });
+      }
+      const g = groups.get(key);
+      if (r.question_id) {
+        g.answersByQId[r.question_id] = (r.answers && r.answers[0]) || "";
+      } else if (Array.isArray(r.answers)) {
+        // Legacy responses (no question_id): answers indexed by question position
+        r.answers.forEach((a, i) => { if (a) g.answersByIdx[i] = a; });
+      }
+    }
+    return Array.from(groups.values()).sort((a, b) => a.num - b.num);
+  })();
+
+  // Get a participant's answer for a given question (handles both new and legacy data)
+  const answerFor = (group, q, qIdx) =>
+    group.answersByQId[q.id] || group.answersByIdx[qIdx] || "";
 
   // ── Helpers ──────────────────────────────────────────────
   const callAI = async (prompt, maxTokens=1000, attempt=0) => {
@@ -256,11 +288,18 @@ export default function App() {
     setAnswers([""]);
     setSessionDone(false);
     sessionWasOpenRef.current = false;
+    answeredQIdRef.current = null;
     setCurrentQId(null);
-    // Generate a unique token for this participant session
-    const token = (typeof crypto !== "undefined" && crypto.randomUUID)
-      ? crypto.randomUUID()
-      : `p_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    // Reuse a persisted token if the participant is just resuming after a refresh,
+    // otherwise generate a fresh one.
+    let token = null;
+    try { token = localStorage.getItem("participant_token"); } catch {}
+    if (!token) {
+      token = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `p_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+      try { localStorage.setItem("participant_token", token); } catch {}
+    }
     setParticipantToken(token);
     setScreen("waiting");
     startPolling();
@@ -278,44 +317,56 @@ export default function App() {
   const handleNext = async () => {
     if (!currentQId && qIdx < activeQs.length-1) { setQIdx(qIdx+1); return; }
     const info = LANGS.find(l=>l.code===lang);
-    // Show waiting screen IMMEDIATELY
-    answeredQIdRef.current = currentQId;
-    setWaitingNext(true);
-    setScreen("waiting");
-    startPolling();
-    // Save to DB in background
-    const newResp = { 
-      lang, langName:info?.full||lang, flag:info?.flag||"", 
+    const newResp = {
+      lang, langName:info?.full||lang, flag:info?.flag||"",
       answers:[...curAns],
       question_id: currentQId || null,
       participant_token: participantToken
     };
+    // Try to save FIRST, then transition. If POST fails, stay on the question and show error.
+    setSubmitError(null);
     try {
       const res = await fetch("/api/responses", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body:JSON.stringify(newResp),
       });
-      const data = await res.json();
-      if (res.ok) {
-        setResponses(prev=>[...prev,{
-          id:data.id, lang:data.lang, langName:data.lang_name, flag:data.flag,
-          answers:data.answers, question_id:data.question_id,
-          participant_token:data.participant_token,
-          time:new Date(data.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
-        }]);
+      if (!res.ok) {
+        const errText = await res.text().catch(()=>res.statusText);
+        throw new Error(errText || `HTTP ${res.status}`);
       }
-    } catch(e) {
+      const data = await res.json();
+      // Save succeeded — now transition to waiting and update local state
+      answeredQIdRef.current = currentQId;
+      setWaitingNext(true);
+      setScreen("waiting");
+      startPolling();
       setResponses(prev=>[...prev,{
-        id:prev.length+1, lang, langName:info?.full||lang, flag:info?.flag||"",
-        answers:[...curAns], question_id:currentQId,
-        participant_token:participantToken,
-        time:new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
+        id:data.id, lang:data.lang, langName:data.lang_name, flag:data.flag,
+        answers:data.answers, question_id:data.question_id,
+        participant_token:data.participant_token,
+        time:new Date(data.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
       }]);
+    } catch(e) {
+      // Stay on the question and tell the user it didn't go through
+      setSubmitError(e.message || "Network error — please try again");
     }
   };
 
   const changeAnswer = (val) => { const u=[...curAns]; u[currentQId?0:qIdx]=val; setAnswers(u); };
-  const reset = () => { setAnswers([]); setQIdx(0); setScreen("lang"); };
+  const reset = () => {
+    // Clear EVERYTHING tied to the previous participant
+    setAnswers([]);
+    setQIdx(0);
+    setSessionDone(false);
+    setWaitingNext(false);
+    setCurrentQId(null);
+    setParticipantToken(null);
+    answeredQIdRef.current = null;
+    sessionWasOpenRef.current = false;
+    try { localStorage.removeItem("participant_token"); } catch {}
+    if (pollRefHandle.current) { clearInterval(pollRefHandle.current); pollRefHandle.current = null; }
+    setScreen("lang");
+  };
 
   // ── Admin auth ────────────────────────────────────────────
   const tryLogin = async () => {
@@ -376,6 +427,7 @@ export default function App() {
             setWaitingNext(false);
             setCurrentQId(null);
             setScreen("sessionDone");
+            try { localStorage.removeItem("participant_token"); } catch {}
             clearInterval(interval);
           } else {
             // Session never opened = keep waiting
@@ -485,15 +537,15 @@ export default function App() {
 
   // ── Copy as table ──
   const copyAsTable = () => {
-    // Build tab-separated table
     const headers = ["Participant", "Language", "Time", ...questions.map((q,i)=>`Q${i+1}: ${q.en.slice(0,40)}`)];
-    const rows = responses.map(r => [
-      `#${r.id}`, r.langName, r.time,
-      ...questions.map((q,qi) => r.question_id ? (r.question_id===q.id ? r.answers[0]||"" : "") : (r.answers[qi]||""))
+    const rows = participantGroups.map(g => [
+      `#${g.num}`, g.langName, g.time,
+      ...questions.map((q, qi) => answerFor(g, q, qi))
     ]);
     const table = [headers, ...rows].map(row => row.join("\t")).join("\n");
     navigator.clipboard.writeText(table).then(() => {
-      alert("✅ Table copied! Paste into Excel or Google Sheets.");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
     });
   };
 
@@ -504,6 +556,16 @@ export default function App() {
     const interval = setInterval(loadResponses, 5000);
     return () => clearInterval(interval);
   }, [screen]);
+
+  // ── Cleanup the participant-side poll when the component unmounts ──
+  useEffect(() => {
+    return () => {
+      if (pollRefHandle.current) {
+        clearInterval(pollRefHandle.current);
+        pollRefHandle.current = null;
+      }
+    };
+  }, []);
 
   // ── Load + poll questions from DB every 5s ──
   useEffect(() => {
@@ -564,7 +626,11 @@ export default function App() {
     const key = qId+"_"+langCode;
     const newText = editingTrans[key];
     if (newText !== undefined) {
-      setQuestions(prev => prev.map(q => q.id===qId ? {...q, [langCode]: newText} : q));
+      setQuestions(prev => {
+        const updated = prev.map(q => q.id===qId ? {...q, [langCode]: newText} : q);
+        syncQuestions(updated); // ← persist to DB so the edit survives refresh
+        return updated;
+      });
       setEditingTrans(prev => { const n={...prev}; delete n[key]; return n; });
     }
   };
@@ -609,8 +675,18 @@ export default function App() {
     if (!responses.length) return;
     setLoadingSum(q.id);
     const qPos = questions.indexOf(q);
-    const qResps = responses.filter(r=>r.question_id===q.id||(r.question_id===null&&r.answers[qPos]));
-    const ans = qResps.map(r=>`- Participant #${participantNum(r)} (${r.langName}): ${r.question_id?r.answers[0]:r.answers[qPos]||"(no answer)"}`).join("\n");
+    // One entry per participant who actually answered THIS question
+    const qResps = participantGroups
+      .map(g => ({ g, answer: answerFor(g, q, qPos) }))
+      .filter(({ answer }) => answer && String(answer).trim());
+    if (!qResps.length) {
+      setQSummaries(prev=>({...prev,[q.id]:"No responses yet for this question."}));
+      setLoadingSum(null);
+      return;
+    }
+    const ans = qResps.map(({ g, answer }) =>
+      `- Participant #${g.num} (${g.langName}): ${answer}`
+    ).join("\n");
     const prompt = `Summarize these survey responses for the question: "${q.en}"\n\nResponses:\n${ans}\n\nWrite 3-5 concise bullet points capturing key themes. Start each with "•".`;
     try {
       const raw = await callAI(prompt, 800);
@@ -622,18 +698,13 @@ export default function App() {
   };
 
   // ── Export ────────────────────────────────────────────────
-  const copyRaw = () => {
-    const hdr = `ASIA PACIFIC SURVEY — RAW DATA\nExported: ${new Date().toLocaleString()}\nParticipants: ${responses.length}\n${"=".repeat(40)}\n\n`;
-    const body = responses.map(r=>`Participant #${participantNum(r)} | ${r.langName} ${r.flag} | ${r.time}\n`+
-      questions.map((q,i)=>`  Q${i+1}: ${q.en}\n  → ${r.answers[i]||"(no answer)"}`).join("\n\n")
-    ).join("\n\n"+"-".repeat(40)+"\n\n");
-    navigator.clipboard.writeText(hdr+body).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2500);});
-  };
-
   const exportCSV = () => {
     const esc = s=>`"${(s||"").replace(/"/g,'""')}"`;
     const hdrs = ["#","Language","Time",...questions.map((_,i)=>`Q${i+1}`)];
-    const rows = responses.map(r=>[r.id,r.langName,r.time,...r.answers]);
+    const rows = participantGroups.map(g => [
+      g.num, g.langName, g.time,
+      ...questions.map((q, qi) => answerFor(g, q, qi))
+    ]);
     const csv = [hdrs,...rows].map(r=>r.map(esc).join(",")).join("\n");
     const a = Object.assign(document.createElement("a"),{
       href:URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"})),
@@ -646,9 +717,9 @@ export default function App() {
   const generatePresentation = async () => {
     if (!responses.length) return;
     setLoadingPres(true); setSlides(null); setSlideIdx(0); setHiddenSlides(new Set());
-    const block = responses.map(r=>
-      `Participant #${participantNum(r)} (${r.langName}):\n`+
-      activeQs.map((q,i)=>`Q${i+1}: ${q.en}\nAnswer: ${r.answers[i]||"(no answer)"}`).join("\n")
+    const block = participantGroups.map(g =>
+      `Participant #${g.num} (${g.langName}):\n`+
+      activeQs.map((q,i)=>`Q${i+1}: ${q.en}\nAnswer: ${answerFor(g, q, i)||"(no answer)"}`).join("\n")
     ).join("\n\n");
     const prompt = `Create a professional presentation from ${responses.length} Asia Pacific survey responses.
 
@@ -773,7 +844,7 @@ ${block}`;
           <div style={{maxWidth:"600px",width:"100%"}}>
             {/* Back to language */}
             <div style={{marginBottom:"20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <button onClick={()=>setScreen("lang")} style={{
+              <button onClick={()=>setScreen("langSwitch")} style={{
                 background:"none",border:"none",color:"#7aaa88",fontSize:"13px",
                 cursor:"pointer",display:"flex",alignItems:"center",gap:"6px",padding:"0",fontFamily:"inherit"}}>
                 🌐 Change language
@@ -798,6 +869,12 @@ ${block}`;
               style={{width:"100%",background:"#fff",border:`2px solid ${BD}`,borderRadius:"12px",
                 padding:"20px",color:"#1a3a26",fontSize:"15px",lineHeight:"1.7",resize:"vertical",outline:"none"}}
               onFocus={e=>e.target.style.borderColor=G} onBlur={e=>e.target.style.borderColor=BD} />
+            {submitError && (
+              <div style={{marginTop:"12px",padding:"12px 14px",background:"#fff2f2",border:"2px solid #faa",
+                borderRadius:"10px",color:"#c0392b",fontSize:"13px",fontWeight:"600"}}>
+                ⚠️ {submitError}
+              </div>
+            )}
             <Btn className="nb" onClick={handleNext} disabled={!curAns[currentQId?0:qIdx]?.trim()}
               style={{width:"100%",marginTop:"16px",padding:"17px",fontSize:"14px",
                 background:curAns[currentQId?0:qIdx]?.trim()?`linear-gradient(135deg,${DG},${G})`:BD,
@@ -836,7 +913,7 @@ ${block}`;
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"12px"}}>
               {LANGS.map(l=>(
-                <button key={l.code} className="lb" onClick={()=>{setLang(l.code);setScreen("survey");}} style={{
+                <button key={l.code} className="lb" onClick={()=>{setLang(l.code);setScreen(currentQId?"survey":"waiting");}} style={{
                   background: lang===l.code?"#f0faf4":"#fff",
                   border:`2px solid ${lang===l.code?G:BD}`,
                   borderRadius:"14px",padding:"20px 10px",cursor:"pointer",textAlign:"center",
@@ -877,7 +954,7 @@ ${block}`;
               ))}
             </div>
             <style>{`@keyframes bounce{0%,100%{transform:translateY(0);}50%{transform:translateY(-8px);}}`}</style>
-            <button onClick={()=>setScreen("lang")} style={{
+            <button onClick={()=>setScreen("langSwitch")} style={{
               marginTop:"32px",background:"none",border:"none",color:"#b0d4b8",
               fontSize:"13px",cursor:"pointer",fontFamily:"inherit"}}>
               🌐 Change language
@@ -916,8 +993,8 @@ ${block}`;
             maxWidth:"1020px",margin:"0 auto 24px",flexWrap:"wrap",gap:"12px"}}>
             <h1 style={{fontSize:"22px",fontWeight:"800"}}>📊 Admin Dashboard</h1>
             <div style={{display:"flex",gap:"10px",flexWrap:"wrap"}}>
-              <SmallBtn onClick={copyRaw} disabled={!hasData} color={copied?"green":"white"}>
-                {copied?"✓ Copied!":"📋 Copy Raw Data"}
+              <SmallBtn onClick={copyAsTable} disabled={!hasData} color={copied?"green":"white"}>
+                {copied?"✓ Copied!":"📊 Copy as Table"}
               </SmallBtn>
               <button onClick={exportCSV} disabled={!hasData} style={{
                 padding:"9px 16px",borderRadius:"9px",fontSize:"12px",fontWeight:"600",
@@ -992,11 +1069,6 @@ ${block}`;
                       padding:"9px 16px",borderRadius:"9px",fontSize:"12px",fontWeight:"600",
                       cursor:"pointer",border:`2px solid ${G}`,background:LG,color:DG}}>
                       🔄 Refresh
-                    </button>
-                    <button onClick={copyAsTable} style={{
-                      padding:"9px 16px",borderRadius:"9px",fontSize:"12px",fontWeight:"600",
-                      cursor:"pointer",border:`2px solid ${BD}`,background:"#fff",color:DG}}>
-                      📊 Copy as Table
                     </button>
                     <button onClick={deleteAllResponses} style={{
                       padding:"9px 16px",borderRadius:"9px",fontSize:"12px",fontWeight:"600",
