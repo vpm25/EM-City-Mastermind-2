@@ -24,6 +24,7 @@ export default async function handler(req, res) {
       flag,
       answers,
       question_id,
+      question_text, // ← snapshot of question wording when answered
       participant_token,
     } = req.body || {};
     if (!lang || !Array.isArray(answers)) {
@@ -37,6 +38,7 @@ export default async function handler(req, res) {
         flag,
         answers,
         question_id: question_id ?? null,
+        question_text: question_text ?? null,
         participant_token: participant_token ?? null,
       }])
       .select()
@@ -69,7 +71,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // Delete ALL responses (Supabase requires a filter for safety; .neq matches everything)
+    // Delete ALL responses
     const { error } = await supabase
       .from("survey_responses")
       .delete()
