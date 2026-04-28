@@ -334,13 +334,19 @@ export default function App() {
             })));
           }
         }
-        // Session closed - show thank you
+        // Session closed
         if (!sessionData.session_open) {
-          setSessionDone(true);
-          setWaitingNext(false);
-          setCurrentQId(null);
-          setScreen("sessionDone");
-          clearInterval(interval);
+          if (sessionWasOpenRef.current) {
+            // Session WAS open before = show thank you
+            setSessionDone(true);
+            setWaitingNext(false);
+            setCurrentQId(null);
+            setScreen("sessionDone");
+            clearInterval(interval);
+          } else {
+            // Session never opened = keep waiting
+            setScreen("waiting");
+          }
           return;
         }
         const newQId = sessionData.current_question_id;
