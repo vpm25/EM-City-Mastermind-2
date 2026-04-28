@@ -175,6 +175,7 @@ export default function App() {
   const [currentQId,  setCurrentQId]     = useState(null);
   const [waitingNext, setWaitingNext]    = useState(false);
   const [sessionDone, setSessionDone]    = useState(false);
+  const [participantToken, setParticipantToken] = useState(null);
   const pollRefHandle = useRef(null);
   const answeredQIdRef = useRef(null);
   const sessionWasOpenRef = useRef(false);
@@ -184,6 +185,20 @@ export default function App() {
   const currentQ = currentQId ? questions.find(q => q.id === currentQId) : activeQs[qIdx];
   const getLang = (q, lang) => q?.[lang==='id'?'idLang':lang] || q?.en || '';
   const curAns  = currentQId ? (answers.length > 0 ? answers : [""]) : (answers.length === activeQs.length ? answers : activeQs.map(() => ""));
+
+  // ── Map each unique participant_token to a stable number (#1, #2, ...) by first-seen order
+  // Falls back to the row id for legacy responses without a token.
+  const participantNumberMap = (() => {
+    const map = new Map();
+    let n = 0;
+    for (const r of responses) {
+      const key = r.participant_token || `row_${r.id}`;
+      if (!map.has(key)) { n += 1; map.set(key, n); }
+    }
+    return map;
+  })();
+  const participantNum = (r) => participantNumberMap.get(r.participant_token || `row_${r.id}`) || r.id;
+  const uniqueParticipantCount = participantNumberMap.size;
 
   // ── Helpers ──────────────────────────────────────────────
   const callAI = async (prompt, maxTokens=1000, attempt=0) => {
@@ -242,6 +257,11 @@ export default function App() {
     setSessionDone(false);
     sessionWasOpenRef.current = false;
     setCurrentQId(null);
+    // Generate a unique token for this participant session
+    const token = (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `p_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    setParticipantToken(token);
     setScreen("waiting");
     startPolling();
     try {
@@ -280,6 +300,7 @@ export default function App() {
         setResponses(prev=>[...prev,{
           id:data.id, lang:data.lang, langName:data.lang_name, flag:data.flag,
           answers:data.answers, question_id:data.question_id,
+          participant_token:data.participant_token,
           time:new Date(data.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
         }]);
       }
@@ -287,6 +308,7 @@ export default function App() {
       setResponses(prev=>[...prev,{
         id:prev.length+1, lang, langName:info?.full||lang, flag:info?.flag||"",
         answers:[...curAns], question_id:currentQId,
+        participant_token:participantToken,
         time:new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
       }]);
     }
@@ -304,7 +326,8 @@ export default function App() {
         const data = await res.json();
         setResponses(data.map(r=>({
           id:r.id, lang:r.lang, langName:r.lang_name, flag:r.flag,
-          answers:r.answers,
+          answers:r.answers, question_id:r.question_id,
+          participant_token:r.participant_token,
           time:new Date(r.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
         })));
       }
@@ -434,6 +457,7 @@ export default function App() {
         setResponses(data.map(r=>({
           id:r.id, lang:r.lang, langName:r.lang_name, flag:r.flag,
           answers:r.answers, question_id:r.question_id,
+          participant_token:r.participant_token,
           time:new Date(r.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
         })));
       }
@@ -586,7 +610,7 @@ export default function App() {
     setLoadingSum(q.id);
     const qPos = questions.indexOf(q);
     const qResps = responses.filter(r=>r.question_id===q.id||(r.question_id===null&&r.answers[qPos]));
-    const ans = qResps.map(r=>`- Participant #${r.id} (${r.langName}): ${r.question_id?r.answers[0]:r.answers[qPos]||"(no answer)"}`).join("\n");
+    const ans = qResps.map(r=>`- Participant #${participantNum(r)} (${r.langName}): ${r.question_id?r.answers[0]:r.answers[qPos]||"(no answer)"}`).join("\n");
     const prompt = `Summarize these survey responses for the question: "${q.en}"\n\nResponses:\n${ans}\n\nWrite 3-5 concise bullet points capturing key themes. Start each with "•".`;
     try {
       const raw = await callAI(prompt, 800);
@@ -600,7 +624,7 @@ export default function App() {
   // ── Export ────────────────────────────────────────────────
   const copyRaw = () => {
     const hdr = `ASIA PACIFIC SURVEY — RAW DATA\nExported: ${new Date().toLocaleString()}\nParticipants: ${responses.length}\n${"=".repeat(40)}\n\n`;
-    const body = responses.map(r=>`Participant #${r.id} | ${r.langName} ${r.flag} | ${r.time}\n`+
+    const body = responses.map(r=>`Participant #${participantNum(r)} | ${r.langName} ${r.flag} | ${r.time}\n`+
       questions.map((q,i)=>`  Q${i+1}: ${q.en}\n  → ${r.answers[i]||"(no answer)"}`).join("\n\n")
     ).join("\n\n"+"-".repeat(40)+"\n\n");
     navigator.clipboard.writeText(hdr+body).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2500);});
@@ -623,7 +647,7 @@ export default function App() {
     if (!responses.length) return;
     setLoadingPres(true); setSlides(null); setSlideIdx(0); setHiddenSlides(new Set());
     const block = responses.map(r=>
-      `Participant #${r.id} (${r.langName}):\n`+
+      `Participant #${participantNum(r)} (${r.langName}):\n`+
       activeQs.map((q,i)=>`Q${i+1}: ${q.en}\nAnswer: ${r.answers[i]||"(no answer)"}`).join("\n")
     ).join("\n\n");
     const prompt = `Create a professional presentation from ${responses.length} Asia Pacific survey responses.
@@ -907,7 +931,7 @@ ${block}`;
 
           {/* Stats */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"14px",maxWidth:"1020px",margin:"0 auto 24px"}}>
-            {[{n:responses.length,l:"Responses"},{n:new Set(responses.map(r=>r.lang)).size,l:"Languages"},{n:activeQs.length,l:"Active Questions"}].map((s,i)=>(
+            {[{n:uniqueParticipantCount,l:"Participants"},{n:responses.length,l:"Responses"},{n:new Set(responses.map(r=>r.lang)).size,l:"Languages"}].map((s,i)=>(
               <div key={i} style={{background:"#fff",border:`2px solid ${BD}`,borderRadius:"14px",padding:"22px",textAlign:"center"}}>
                 <div style={{fontSize:"38px",fontWeight:"800",color:DG,lineHeight:"1",marginBottom:"5px"}}>{s.n}</div>
                 <div style={{fontSize:"10px",color:"#7aaa88",letterSpacing:"2px",textTransform:"uppercase",fontWeight:"600"}}>{s.l}</div>
@@ -1084,7 +1108,7 @@ ${block}`;
 <div style={{display:"flex",gap:"8px",flexShrink:0}}>
                             <button onClick={()=>{
                               const sep = "\u2500".repeat(40);
-                              const lines = qResponses.map(r=>"Participant #"+r.id+" ("+r.langName+"):\n"+(r.question_id?r.answers[0]:r.answers[qi]||"(no answer)"));
+                              const lines = qResponses.map(r=>"Participant #"+participantNum(r)+" ("+r.langName+"):\n"+(r.question_id?r.answers[0]:r.answers[qi]||"(no answer)"));
                               const text = "QUESTION "+(qi+1)+": "+q.en+"\n"+sep+"\n"+lines.join("\n\n");
                               navigator.clipboard.writeText(text).then(()=>{
                                 setCopiedRaw(q.id); setTimeout(()=>setCopiedRaw(null),2000);
@@ -1141,7 +1165,7 @@ ${block}`;
                           <div key={r.id} style={{padding:"12px 14px",background:"#fff",borderRadius:"10px",
                             border:`2px solid ${LG}`}}>
                             <div style={{display:"flex",justifyContent:"space-between",marginBottom:"6px",alignItems:"center"}}>
-                              <span style={{fontSize:"11px",fontWeight:"700",color:"#1a3a26"}}>{r.flag} Participant #{r.id}</span>
+                              <span style={{fontSize:"11px",fontWeight:"700",color:"#1a3a26"}}>{r.flag} Participant #{participantNum(r)}</span>
                               <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
                                 <span style={{fontSize:"10px",color:"#7aaa88"}}>{r.langName} · {r.time}</span>
                                 <button onClick={()=>deleteResponse(r.id)} style={{
