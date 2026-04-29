@@ -122,10 +122,15 @@ export default function App() {
   const [translating, setTranslating] = useState(false);
   const [transErr,    setTransErr]    = useState("");
   const [expandedTrans, setExpandedTrans] = useState(new Set());
+  const [expandedInstr, setExpandedInstr] = useState(new Set()); // qIds with instruction editor open
+  const [instrDraft,    setInstrDraft]    = useState({});         // {qId: draftText}
   const [editingTrans,  setEditingTrans]  = useState({}); // {qId_langCode: text}
   const [retranslating, setRetranslating] = useState({}); // {qId_langCode: true}
   const [qSummaries,  setQSummaries]  = useState({});
   const [loadingSum,  setLoadingSum]  = useState(null);
+  const [customOpen,    setCustomOpen]    = useState(new Set()); // qIds with ad-hoc editor open
+  const [customDraft,   setCustomDraft]   = useState({});         // {qId: draftText}
+  const [loadingCustom, setLoadingCustom] = useState(null);       // qId currently running
   const [copiedSum,   setCopiedSum]   = useState(null); // question id
   const [copiedRaw,   setCopiedRaw]   = useState(null); // question id
   const [slides,      setSlides]      = useState(null);
@@ -245,6 +250,23 @@ export default function App() {
   };
 
   // ── Helpers ──────────────────────────────────────────────
+
+  // A reusable instruction block we inject into every analysis prompt.
+  // Tells the model how to handle responses written in different languages
+  // and ensures the OUTPUT is always in English regardless of input language.
+  const MULTILINGUAL_HANDLING = `═══════════════════════════════════════════════════════
+MULTILINGUAL DATA — HOW TO HANDLE
+═══════════════════════════════════════════════════════
+The responses below come from a multilingual audience. Each response is labeled with the participant's language (e.g., "Russian", "Kazakh", "Uzbek", "Mongolian", "Georgian", "Armenian", "Azerbaijani", "English").
+
+Your job:
+1. UNDERSTAND every response in its original language. You are fluent in all of them.
+2. When grouping themes or counting mentions, treat semantically equivalent responses as the same theme regardless of the language they were written in. Example: a Russian response "лидерство" and an English response "leadership" both count toward the same "leadership" theme.
+3. When QUOTING a participant, ALWAYS provide the quote in BOTH the original language AND an English translation in parentheses. Example: "лидерство и команда" (leadership and team).
+4. Your final analysis must be written entirely in ENGLISH. Themes, insights, summaries — all in English. Only the verbatim quotes preserve their original language (with English translation).
+5. Do not call out the language distribution as a finding unless it is genuinely strategic (e.g., "no responses in language X" if that's surprising). Avoid trivial observations like "responses came in 5 languages".
+`;
+
   const callAI = async (prompt, maxTokens=1000, attempt=0) => {
     let res;
     try {
@@ -443,6 +465,7 @@ export default function App() {
             setQuestions(qData.map(q => ({
               id: q.id, active: q.active, en: q.en,
               translations: q.translations || {},
+              analysisInstruction: q.analysis_instruction || "",
             })));
           }
         }
@@ -652,6 +675,7 @@ export default function App() {
           setQuestions(data.map(q => ({
             id: q.id, active: q.active, en: q.en,
             translations: q.translations || {},
+            analysisInstruction: q.analysis_instruction || "",
           })));
         }
       }).catch(() => {});
@@ -697,6 +721,31 @@ export default function App() {
 
   const toggleTransExpand = (id) => {
     setExpandedTrans(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
+  };
+
+  const toggleInstrExpand = (q) => {
+    setExpandedInstr(prev => {
+      const n = new Set(prev);
+      if (n.has(q.id)) {
+        n.delete(q.id);
+      } else {
+        n.add(q.id);
+        // Seed the draft from the current saved value
+        setInstrDraft(d => ({ ...d, [q.id]: q.analysisInstruction || "" }));
+      }
+      return n;
+    });
+  };
+
+  const saveInstr = (qId) => {
+    const text = (instrDraft[qId] || "").trim();
+    setQuestions(prev => {
+      const updated = prev.map(q => q.id === qId ? { ...q, analysisInstruction: text } : q);
+      syncQuestions(updated);
+      return updated;
+    });
+    // Close the editor
+    setExpandedInstr(prev => { const n = new Set(prev); n.delete(qId); return n; });
   };
 
   // Map a language code to its English name, used to construct the translation prompt.
@@ -765,15 +814,17 @@ export default function App() {
     if (!newQText.trim()||questions.length>=10) return;
     const txt = newQText.trim();
     const tempId = Date.now();
-    // Add stub immediately in English
-    const stub = {id:tempId,active:false,en:txt,zh:txt,ja:txt,ko:txt,th:txt,vi:txt,idLang:txt,fil:txt,translating:true};
+    // Add stub immediately in English (no translations yet — will fill from AI below)
+    const stub = { id: tempId, active: false, en: txt, translations: {}, analysisInstruction: "", translating: true };
     const withStub = [...questions, stub];
     setQuestions(withStub);
     setNewQText("");
     // Translate in background
     const result = await translateQuestion(txt);
-    const translated = result ? {...stub,...result,translating:false} : {...stub,translating:false};
-    const final = withStub.map(q=>q.id===tempId ? translated : q);
+    const translated = result
+      ? { ...stub, en: result.en, translations: result.translations, translating: false }
+      : { ...stub, translating: false };
+    const final = withStub.map(q => q.id === tempId ? translated : q);
     setQuestions(final);
     // Sync to Supabase
     await syncQuestions(final);
@@ -784,7 +835,11 @@ export default function App() {
     const t = await translateQuestion(editQ.text.trim());
     if (!t) return;
     setQuestions(prev => {
-      const updated = prev.map(q=>q.id===editQ.id?{id:q.id,active:q.active,...t}:q);
+      const updated = prev.map(q =>
+        q.id === editQ.id
+          ? { ...q, en: t.en, translations: t.translations }
+          : q
+      );
       syncQuestions(updated);
       return updated;
     });
@@ -810,7 +865,43 @@ export default function App() {
       `- Participant #${g.num} (${g.langName}): ${answer}`
     ).join("\n");
 
-    const prompt = `You are a world-class strategic executive consultant with 20+ years of experience analyzing organizational surveys for Fortune 500 leadership teams. You specialize in turning raw qualitative feedback into insights that drive decisions.
+    // If the admin set a custom analysis instruction for this question, use it
+    // instead of the generic strategic-consultant prompt. The grounding rules
+    // (no fabrication) still apply.
+    const customInstr = (q.analysisInstruction || "").trim();
+    let prompt;
+
+    if (customInstr) {
+      prompt = `You are analyzing the responses to ONE specific survey question. Follow the analysis instruction below carefully.
+
+═══════════════════════════════════════════════════════
+GROUNDING RULES — ABSOLUTE
+═══════════════════════════════════════════════════════
+- Every observation MUST be derivable from the responses below. No exceptions.
+- DO NOT invent numbers, percentages, segments, demographics, or any detail not explicitly present in the data.
+- DO NOT extrapolate beyond what the responses say.
+- Quantitative claims must reflect ACTUAL counts. If you cannot count precisely, describe qualitatively ("most", "a few", "one participant"). Never approximate.
+- If the data is thin or patterns ambiguous, say so honestly.
+
+${MULTILINGUAL_HANDLING}
+QUESTION ASKED TO PARTICIPANTS:
+"${q.en}"
+
+NUMBER OF RESPONSES: ${nR}
+
+ANALYSIS INSTRUCTION (follow this exactly):
+${customInstr}
+
+OUTPUT STYLE:
+- Plain English, no jargon.
+- Be specific. Quote near-verbatim phrases from the responses where helpful.
+- If the instruction asks for counts and the count is exactly N, say "${nR > 1 ? "5 of 12" : "1 of 1"}" style — never approximate.
+- With only ${nR} response${nR===1?"":"s"}, acknowledge that limit honestly if it constrains what you can say.
+
+RESPONSES:
+${ans}`;
+    } else {
+      prompt = `You are a world-class strategic executive consultant with 20+ years of experience analyzing organizational surveys for Fortune 500 leadership teams. You specialize in turning raw qualitative feedback into insights that drive decisions.
 
 You are now being asked to analyze the responses to ONE specific survey question and produce a tight set of strategic insights.
 
@@ -823,6 +914,7 @@ GROUNDING RULES — ABSOLUTE
 - Quantitative claims (counts, percentages) must reflect the ACTUAL count in the data. When you CAN count something precisely (e.g., "leadership" appears in 4 out of 7 responses), state the exact number. When you CANNOT count precisely (themes that overlap, fuzzy boundaries, vague references), describe it qualitatively ("most", "a few", "one participant"). Never use approximate or estimated numbers — be exact or be qualitative.
 - If the data is thin or the patterns ambiguous, say so honestly. Hedged truth beats confident fiction.
 
+${MULTILINGUAL_HANDLING}
 QUESTION:
 "${q.en}"
 
@@ -854,6 +946,7 @@ STYLE:
 
 RESPONSES:
 ${ans}`;
+    }
 
     try {
       const raw = await callAI(prompt, 1000);
@@ -862,6 +955,81 @@ ${ans}`;
       setQSummaries(prev=>({...prev,[q.id]:"Error: "+e.message}));
     }
     setLoadingSum(null);
+  };
+
+  // ── Run a one-off, ad-hoc analysis with a custom instruction the admin
+  // types in the moment. Result is stored in qSummaries (same display slot)
+  // but the instruction is NOT persisted to the question.
+  const generateCustomAnalysis = async (q) => {
+    const instruction = (customDraft[q.id] || "").trim();
+    if (!instruction) {
+      alert("Please write an instruction first.");
+      return;
+    }
+    if (!responses.length) return;
+
+    setLoadingCustom(q.id);
+    const qPos = questions.indexOf(q);
+    const qResps = participantGroups
+      .map(g => ({ g, answer: answerFor(g, q, qPos) }))
+      .filter(({ answer }) => answer && String(answer).trim());
+
+    if (!qResps.length) {
+      setQSummaries(prev => ({ ...prev, [q.id]: "No responses yet for this question." }));
+      setLoadingCustom(null);
+      return;
+    }
+
+    const nR = qResps.length;
+    const ans = qResps.map(({ g, answer }) =>
+      `- Participant #${g.num} (${g.langName}): ${answer}`
+    ).join("\n");
+
+    const prompt = `You are analyzing the responses to ONE specific survey question. Follow the analysis instruction below carefully.
+
+═══════════════════════════════════════════════════════
+GROUNDING RULES — ABSOLUTE
+═══════════════════════════════════════════════════════
+- Every observation MUST be derivable from the responses below. No exceptions.
+- DO NOT invent numbers, percentages, segments, demographics, or details not explicitly present.
+- Quantitative claims must reflect ACTUAL counts. If you cannot count precisely, describe qualitatively. Never approximate.
+- If the instruction asks for something the data cannot support (e.g., "top 100" when only 5 responses exist), say so honestly and provide what the data actually supports.
+
+${MULTILINGUAL_HANDLING}
+QUESTION ASKED TO PARTICIPANTS:
+"${q.en}"
+
+NUMBER OF RESPONSES: ${nR}
+
+ANALYSIS INSTRUCTION (follow this exactly):
+${instruction}
+
+OUTPUT STYLE:
+- Plain English, no jargon.
+- Be specific. Quote near-verbatim phrases from the responses where helpful.
+- Counts must be exact. Never approximate.
+- With ${nR} response${nR===1?"":"s"}, acknowledge that limit honestly if it constrains what you can deliver.
+
+RESPONSES:
+${ans}`;
+
+    try {
+      const raw = await callAI(prompt, 1500);
+      setQSummaries(prev => ({ ...prev, [q.id]: raw }));
+      // Close the editor on success
+      setCustomOpen(prev => { const n = new Set(prev); n.delete(q.id); return n; });
+    } catch (e) {
+      setQSummaries(prev => ({ ...prev, [q.id]: "Error: " + e.message }));
+    }
+    setLoadingCustom(null);
+  };
+
+  const toggleCustomEditor = (q) => {
+    setCustomOpen(prev => {
+      const n = new Set(prev);
+      if (n.has(q.id)) n.delete(q.id); else n.add(q.id);
+      return n;
+    });
   };
 
   // ── Export ────────────────────────────────────────────────
@@ -1011,6 +1179,7 @@ GROUNDING RULES — ABSOLUTE
 - Use the language of decisions, not descriptions. Say "rethink", "double down", "stop", not "consider exploring".
 - Output language: ENGLISH.
 
+${MULTILINGUAL_HANDLING}
 ═══════════════════════════════════════════════════════
 STRUCTURE — DERIVE THE SECTIONS FROM THE DATA
 ═══════════════════════════════════════════════════════
@@ -1564,6 +1733,7 @@ GROUNDING RULES — ABSOLUTE
 - DO NOT extrapolate. If a response says "leadership", you cannot claim it referred to "first-time leadership roles" or "leadership development programs" unless those exact phrases are in the responses.
 - If the data does not support a strategic claim, do not make one. Hedged truth beats confident fiction. Acknowledging uncertainty is what makes the analysis trustworthy.
 
+${MULTILINGUAL_HANDLING}
 DATA SUMMARY (use these exact numbers, do not change them):
 - ${nP} participant${nP===1?"":"s"} took part in the survey
 - ${nQ} question${nQ===1?"":"s"} were asked
@@ -2197,8 +2367,42 @@ ${block}`;
                                 background:"#fff",color:DG,flexShrink:0,opacity:loadingSum===q.id?.6:1}}>
                               {loadingSum===q.id?"⏳ Summarizing...":qSummaries[q.id]?"🔄 Re-summarize":"Summarize"}
                             </button>
+                          <button onClick={()=>toggleCustomEditor(q)} disabled={loadingCustom===q.id}
+                              title="Run a one-time custom analysis"
+                              style={{padding:"9px 12px",borderRadius:"9px",fontSize:"12px",fontWeight:"700",
+                                cursor:loadingCustom===q.id?"not-allowed":"pointer",border:`2px solid ${BD}`,
+                                background:customOpen.has(q.id)?LG:"#fff",color:DG,flexShrink:0,opacity:loadingCustom===q.id?.6:1}}>
+                              {loadingCustom===q.id?"⏳":"⚡ Custom"}
+                            </button>
                           </div>
                         </div>
+                        {/* Ad-hoc custom analysis editor */}
+                        {customOpen.has(q.id) && (
+                          <div style={{marginTop:"12px",padding:"14px",background:LG,borderRadius:"10px",border:`1px solid ${BD}`}}>
+                            <div style={{fontSize:"10px",fontWeight:"700",color:DG,marginBottom:"6px",letterSpacing:"1.5px",textTransform:"uppercase"}}>
+                              ⚡ One-time custom analysis
+                            </div>
+                            <p style={{fontSize:"11px",color:"#7aaa88",margin:"0 0 10px",lineHeight:"1.5"}}>
+                              Write an instruction and the AI will analyze this question's responses accordingly. Not saved — useful for exploring different angles without changing the question.
+                            </p>
+                            <textarea
+                              value={customDraft[q.id] ?? ""}
+                              onChange={e=>setCustomDraft(d=>({...d,[q.id]:e.target.value}))}
+                              rows={3}
+                              placeholder="e.g., List the top 10 most repeated questions, with a count for each"
+                              style={{width:"100%",padding:"10px",border:`1px solid ${BD}`,borderRadius:"8px",
+                                fontSize:"13px",resize:"vertical",outline:"none",lineHeight:"1.5",fontFamily:"inherit",boxSizing:"border-box"}}
+                            />
+                            <div style={{display:"flex",gap:"6px",marginTop:"10px"}}>
+                              <SmallBtn onClick={()=>generateCustomAnalysis(q)}
+                                disabled={loadingCustom===q.id || !(customDraft[q.id]||"").trim()}
+                                color="green">
+                                {loadingCustom===q.id?"⏳ Running...":"▶ Run analysis"}
+                              </SmallBtn>
+                              <SmallBtn onClick={()=>toggleCustomEditor(q)} color="white">Cancel</SmallBtn>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* AI Summary */}
@@ -2299,6 +2503,46 @@ ${block}`;
                                 <span key={j} style={{marginRight:"8px"}}>{s?.slice(0,20)}…</span>
                               ))}
                             </p>
+                            {/* Custom analysis instruction toggle */}
+                            <div style={{marginTop:"8px"}}>
+                              <button onClick={()=>toggleInstrExpand(q)}
+                                style={{background:"transparent",border:"none",padding:0,cursor:"pointer",
+                                  fontSize:"11px",color:q.analysisInstruction?G:"#7aaa88",fontWeight:q.analysisInstruction?"700":"500",
+                                  textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:"3px"}}>
+                                {q.analysisInstruction
+                                  ? `🧠 Custom analysis ✓  ${expandedInstr.has(q.id) ? "(hide)" : "(view)"}`
+                                  : `🧠 Add custom analysis instruction`}
+                              </button>
+                            </div>
+                            {/* Instruction editor */}
+                            {expandedInstr.has(q.id) && (
+                              <div style={{marginTop:"10px",padding:"12px",background:LG,borderRadius:"8px",border:`1px solid ${BD}`}}>
+                                <div style={{fontSize:"10px",fontWeight:"600",color:DG,marginBottom:"6px",letterSpacing:"1px",textTransform:"uppercase"}}>
+                                  Custom analysis instruction (optional)
+                                </div>
+                                <p style={{fontSize:"11px",color:"#7aaa88",margin:"0 0 8px",lineHeight:"1.5"}}>
+                                  When you click "Summarize" on this question, the AI will follow this instruction instead of the generic analysis. Example: "List the top 10 most repeated questions, with a count of how many people asked each."
+                                </p>
+                                <textarea
+                                  value={instrDraft[q.id] ?? ""}
+                                  onChange={e=>setInstrDraft(d=>({...d, [q.id]: e.target.value}))}
+                                  rows={3}
+                                  placeholder="Leave empty to use the default strategic analysis…"
+                                  style={{width:"100%",padding:"8px",border:`1px solid ${BD}`,borderRadius:"6px",
+                                    fontSize:"12px",resize:"vertical",outline:"none",lineHeight:"1.5",fontFamily:"inherit",
+                                    boxSizing:"border-box"}}
+                                />
+                                <div style={{display:"flex",gap:"6px",marginTop:"8px"}}>
+                                  <SmallBtn onClick={()=>saveInstr(q.id)} color="green">💾 Save</SmallBtn>
+                                  <SmallBtn onClick={()=>toggleInstrExpand(q)} color="white">Cancel</SmallBtn>
+                                  {q.analysisInstruction && (
+                                    <SmallBtn onClick={()=>{ setInstrDraft(d=>({...d, [q.id]: ""})); saveInstr(q.id); }} color="white">
+                                      Clear
+                                    </SmallBtn>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
