@@ -978,7 +978,7 @@ ${ans}`;
     }
   };
 
-  // ── Generate strategic one-pager (markdown summary of summaries) ──
+  // ── Generate strategic one-pager (executive dashboard, JSON structured) ──
   const generateOnePager = async () => {
     if (!responses.length) return;
     setLoadingOnePager(true); setOnePager(null);
@@ -995,84 +995,157 @@ ${ans}`;
 
     const nP = participantGroups.length;
     const nQ = presQs.length;
+    const nResp = responses.length;
 
-    const prompt = `You are a world-class strategic executive consultant with 20+ years of experience advising Fortune 500 leadership teams. You are exceptional at distilling messy qualitative feedback into a single page of strategic clarity that a CEO or board member can read in under 3 minutes and walk away with what matters.
+    const prompt = `You are a world-class strategic executive consultant who designs board-ready one-page dashboards for Fortune 500 leadership teams. You combine the analytical rigor of McKinsey with the punchy clarity of a great brand strategist. Your work is famous for being scannable in 90 seconds and impossible to forget.
 
-You are now being asked to create a STRATEGIC ONE-PAGER from a survey of ${nP} participant${nP===1?"":"s"} who answered ${nQ} question${nQ===1?"":"s"}. This is not a summary of every response — it is a synthesis of the synthesis. Think of it as the executive briefing that lands on a leader's desk before a board meeting.
+You are now producing an EXECUTIVE DASHBOARD ONE-PAGER from a survey of ${nP} participant${nP===1?"":"s"} who answered ${nQ} question${nQ===1?"":"s"} (${nResp} total responses).
 
 CRITICAL RULES:
-- Every claim must come directly from the data provided below.
-- DO NOT invent numbers, demographics, or details not present in the responses.
-- Be concise. A one-pager is short by definition. Cut anything that doesn't earn its place.
-- Speak in the language of decisions, not descriptions.
-- Where there is a clear pattern, name it. Where the signal is mixed, say so honestly.
-- This is NOT a transcript. Synthesize. Compress. Elevate.
+- Every claim grounded in the data below. No invented numbers, names, percentages, or themes.
+- Be PUNCHY. Short sentences. Active voice. Quantitative whenever possible.
+- Each strength/opportunity card must include at least one data point or specific quote from a response.
+- Use the language of decisions, not descriptions. Say "rethink", "double down", "stop", not "consider exploring".
+- Where the data is thin, name it honestly in the "what we did NOT learn" section instead of inflating findings.
 
-REQUIRED STRUCTURE (return as Markdown, no JSON):
+OUTPUT FORMAT — return ONLY valid JSON, no commentary, no backticks:
 
-# {Concise, strategic title — not generic. Should hint at the core finding.}
+{
+  "title": "Short evocative title — should hint at the core finding (max 8 words)",
+  "subtitle": "One-line context about what this dashboard covers (e.g., 'Q4 2026 Asia Pacific Mastermind Survey · 30 participants · 5 questions')",
+  "executiveSummary": "ONE paragraph (50-80 words) capturing the overall picture. This is what a leader will remember if they read nothing else. Lead with the headline, then the tension, then the call to action.",
+  "strengths": [
+    {
+      "title": "Short title (3-6 words)",
+      "body": "1-2 punchy sentences with a SPECIFIC data point or pattern from the responses.",
+      "quote": "A short verbatim or near-verbatim quote from a participant that supports this card. Keep it under 15 words. Omit field if no quote fits."
+    }
+    // 2-4 strength cards total
+  ],
+  "opportunities": [
+    {
+      "title": "Short title — frame as a tension or gap",
+      "body": "1-2 punchy sentences naming the issue with a specific signal from the data.",
+      "quote": "Verbatim or near-verbatim from responses, under 15 words. Omit if none."
+    }
+    // 2-4 opportunity cards total
+  ],
+  "blindspots": [
+    "Each blindspot is ONE sentence (max 25 words) naming something the data did NOT cover but that leadership should be aware of given the topic. These are honest gaps in the survey itself."
+    // 2-3 blindspots total
+  ],
+  "actions": [
+    {
+      "label": "Action verb + noun (e.g., 'Redesign', 'Stop', 'Double down')",
+      "body": "1 sentence describing the concrete action and why it matters. Should be specific enough to assign to a person."
+    }
+    // 3-5 actions total, prioritized
+  ],
+  "convergence": {
+    "voice1": "The key sentiment from participants in their own words (under 10 words, in quotes)",
+    "voice2": "The strategic tension this surfaces (under 10 words)",
+    "voice3": "The decision this forces (under 10 words)"
+  }
+}
 
-**At a glance:** {ONE sentence (max 25 words) capturing the single most important takeaway from the entire survey. This is what a leader will remember if they read nothing else.}
+EXAMPLES OF GOOD CARDS (notice the punchiness, data, and clarity):
 
-## What we heard
-{2-4 short bullets summarizing the dominant themes ACROSS all questions. These are the patterns that emerged repeatedly. Each bullet should be specific and grounded — not vague platitudes.}
+Strength card:
+{
+  "title": "Leadership development resonates",
+  "body": "Cited in 18 of 30 responses (60%) — the single most-mentioned theme. Strong signal that investment here will land.",
+  "quote": "Most valuable was learning to lead without authority"
+}
 
-## What it means
-{2-4 short bullets translating the themes into strategic implications. Each bullet should answer "so what?". This is where you connect the dots and surface what leadership should pay attention to.}
+Opportunity card:
+{
+  "title": "Recruitment without retention",
+  "body": "Participants describe pulling in new members but losing them within 90 days. Pattern surfaced 8 times. Pipeline is leaky, not empty.",
+  "quote": "We recruit but it's not easy to retain them"
+}
 
-## Where to act
-{2-3 concrete, prioritized recommendations. Each should be specific enough to assign to a person or team. Avoid generic advice like "improve communication" — be concrete: who, what, why.}
+Action card:
+{
+  "label": "Redesign the 90-day journey",
+  "body": "Build a structured first-90-days experience for new members. Today's onboarding is informal; participants want clarity on what 'good' looks like."
+}
 
-## What we did NOT learn
-{1-2 bullets honestly naming gaps or limitations in the data. This is what builds your credibility — leaders trust analysis that knows its own limits.}
-
-STYLE:
-- Plain English. No jargon. No buzzwords.
-- Active voice. Short sentences.
-- Be confident where the data supports it. Be hedged where it doesn't.
-- Total length should fit on one printed page (roughly 250-400 words of body content).
+DO NOT produce vague or trivial content like:
+  ✗ "Participants gave varied responses" (vacuous)
+  ✗ "Communication is important" (banal)
+  ✗ "More data is needed" (cop-out — say what would help)
 
 ACTUAL SURVEY RESPONSES:
 ${block}`;
 
     try {
-      const raw = await callAI(prompt, 2000);
-      // Strip any wrapping code fences if the model added them
-      const cleaned = String(raw).replace(/^```(?:markdown)?\s*/i, "").replace(/```\s*$/, "").trim();
-      setOnePager(cleaned);
+      const raw = await callAI(prompt, 3000);
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error("No JSON in response");
+      const parsed = JSON.parse(m[0]);
+      setOnePager(parsed);
     } catch(e) {
-      setOnePager("Error generating one-pager: " + e.message);
+      setOnePager({ error: "Could not generate one-pager: " + e.message });
     }
     setLoadingOnePager(false);
   };
 
-  // Copy the one-pager (as markdown) to clipboard
+  // Convert structured one-pager to plain text for clipboard
+  const onePagerToText = (op) => {
+    if (!op || op.error) return "";
+    const lines = [];
+    if (op.title) lines.push(op.title.toUpperCase(), "");
+    if (op.subtitle) lines.push(op.subtitle, "");
+    if (op.executiveSummary) lines.push(op.executiveSummary, "");
+    if (op.strengths?.length) {
+      lines.push("STRENGTHS", "─".repeat(40));
+      op.strengths.forEach(s => {
+        lines.push(`• ${s.title}`);
+        if (s.body) lines.push(`  ${s.body}`);
+        if (s.quote) lines.push(`  "${s.quote}"`);
+        lines.push("");
+      });
+    }
+    if (op.opportunities?.length) {
+      lines.push("OPPORTUNITIES", "─".repeat(40));
+      op.opportunities.forEach(o => {
+        lines.push(`• ${o.title}`);
+        if (o.body) lines.push(`  ${o.body}`);
+        if (o.quote) lines.push(`  "${o.quote}"`);
+        lines.push("");
+      });
+    }
+    if (op.blindspots?.length) {
+      lines.push("BLIND SPOTS", "─".repeat(40));
+      op.blindspots.forEach(b => lines.push(`• ${b}`));
+      lines.push("");
+    }
+    if (op.actions?.length) {
+      lines.push("WHERE TO ACT", "─".repeat(40));
+      op.actions.forEach((a, i) => {
+        lines.push(`${i+1}. ${a.label}`);
+        if (a.body) lines.push(`   ${a.body}`);
+      });
+      lines.push("");
+    }
+    if (op.convergence) {
+      lines.push("THE CONVERGENCE", "─".repeat(40));
+      if (op.convergence.voice1) lines.push(`Voice:    ${op.convergence.voice1}`);
+      if (op.convergence.voice2) lines.push(`Tension:  ${op.convergence.voice2}`);
+      if (op.convergence.voice3) lines.push(`Decision: ${op.convergence.voice3}`);
+    }
+    return lines.join("\n");
+  };
+
   const copyOnePager = () => {
-    if (!onePager) return;
-    navigator.clipboard.writeText(onePager).then(() => {
+    if (!onePager || onePager.error) return;
+    navigator.clipboard.writeText(onePagerToText(onePager)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     });
   };
 
-  // Parse the one-pager markdown into structured blocks for PDF/Word renderers.
-  // Returns: [{type: "h1"|"h2"|"para"|"bullet", text: "..."}]
-  const parseOnePager = () => {
-    if (!onePager) return [];
-    const blocks = [];
-    onePager.split("\n").forEach(line => {
-      const t = line.trim();
-      if (!t) return;
-      if (t.startsWith("# "))      blocks.push({ type: "h1", text: t.slice(2) });
-      else if (t.startsWith("## "))blocks.push({ type: "h2", text: t.slice(3) });
-      else if (t.startsWith("- ") || t.startsWith("* "))
-                                   blocks.push({ type: "bullet", text: t.slice(2) });
-      else                          blocks.push({ type: "para", text: t });
-    });
-    return blocks;
-  };
-
-  // ── Download one-pager as PDF (uses jsPDF from CDN) ──
+  // ── Download one-pager as PDF ──
   const loadJsPDF = () => new Promise((resolve, reject) => {
     if (window.jspdf?.jsPDF) return resolve(window.jspdf.jsPDF);
     const s = document.createElement("script");
@@ -1083,111 +1156,226 @@ ${block}`;
   });
 
   const downloadOnePagerPDF = async () => {
-    if (!onePager) return;
+    if (!onePager || onePager.error) return;
     try {
       const jsPDF = await loadJsPDF();
-      const doc = new jsPDF({ unit: "pt", format: "letter" }); // 612 x 792 pt
-      const pageW = 612, marginX = 54;     // 0.75" margin
-      const contentW = pageW - marginX * 2;
-      let y = 72;                          // top margin
+      const op = onePager;
+      const doc = new jsPDF({ unit: "pt", format: "letter", orientation: "portrait" });
+      const pageW = 612, pageH = 792;
+      const M = 36;
+      const colGap = 14;
+      const colW = (pageW - M*2 - colGap) / 2;
+      const G_DARK = [31, 107, 58];
+      const G_MID  = [39, 174, 96];
+      const G_LIGHT= [200, 230, 210];
+      const G_BG   = [240, 248, 242];
+      const TXT    = [26, 58, 38];
+      const TXT_MUTED = [122, 170, 136];
+      const ORANGE = [230, 145, 56];
+      const RED    = [200, 80, 60];
 
-      // Helpers — strip **bold** markers for plain rendering, but bold the styled
-      // segments where possible by using setFont("bold").
-      const writeStyled = (text, baseSize, baseColor=[26,58,38], baseStyle="normal") => {
-        const parts = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
-        let cursorX = marginX;
-        const lineH = baseSize * 1.4;
-        parts.forEach(seg => {
-          const isBold = seg.startsWith("**") && seg.endsWith("**");
-          const clean  = isBold ? seg.slice(2, -2) : seg;
-          doc.setFont("helvetica", isBold ? "bold" : baseStyle);
-          doc.setFontSize(baseSize);
-          doc.setTextColor(...baseColor);
-          // word-wrap each segment respecting the cursor position
-          const words = clean.split(" ");
-          words.forEach((word, idx) => {
-            const piece = (idx === 0 ? "" : " ") + word;
-            const w = doc.getTextWidth(piece);
-            if (cursorX + w > pageW - marginX) {
-              y += lineH;
-              cursorX = marginX;
-              if (y > 760) { doc.addPage(); y = 72; }
-              doc.text(word, cursorX, y);
-              cursorX += doc.getTextWidth(word);
-            } else {
-              doc.text(piece, cursorX, y);
-              cursorX += w;
-            }
-          });
-        });
-        y += lineH;
+      let y = M;
+
+      // Header bar
+      doc.setFillColor(...G_DARK);
+      doc.rect(0, 0, pageW, 22, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.text("EXECUTIVE STRATEGIC ONE-PAGER", M, 14);
+      doc.setFont("helvetica", "normal");
+      doc.text("Survey Insights Synthesis", pageW - M, 14, { align: "right" });
+
+      y = 50;
+
+      // Title
+      doc.setTextColor(...G_DARK);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(22);
+      const titleLines = doc.splitTextToSize(op.title || "Survey Insights", pageW - M*2);
+      titleLines.forEach(l => { doc.text(l, M, y); y += 26; });
+
+      if (op.subtitle) {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(...TXT_MUTED);
+        doc.text(op.subtitle, M, y);
+        y += 14;
+      }
+
+      // Executive summary
+      if (op.executiveSummary) {
+        y += 8;
+        const padY = 10, padX = 12;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        const sumLines = doc.splitTextToSize(op.executiveSummary, pageW - M*2 - padX*2);
+        const boxH = sumLines.length * 13 + padY*2;
+        doc.setFillColor(...G_BG);
+        doc.setDrawColor(...G_LIGHT);
+        doc.setLineWidth(1);
+        doc.roundedRect(M, y, pageW - M*2, boxH, 4, 4, "FD");
+        doc.setFillColor(...G_MID);
+        doc.rect(M, y, 3, boxH, "F");
+        doc.setTextColor(...TXT);
+        sumLines.forEach((l, i) => doc.text(l, M + padX, y + padY + 11 + i*13));
+        y += boxH + 14;
+      }
+
+      // Card renderer
+      const drawCard = (x, yStart, w, item, accentColor) => {
+        const padX = 10, padY = 10;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        const tLines = doc.splitTextToSize(item.title || "", w - padX*2);
+        let yy = yStart + padY + 11;
+        tLines.forEach(() => { yy += 12; });
+        yy += 2;
+        if (item.body) {
+          doc.setFontSize(8.5);
+          const bLines = doc.splitTextToSize(item.body, w - padX*2);
+          bLines.forEach(() => { yy += 11; });
+          yy += 2;
+        }
+        if (item.quote) {
+          doc.setFontSize(8);
+          const qLines = doc.splitTextToSize(`"${item.quote}"`, w - padX*2);
+          qLines.forEach(() => { yy += 10; });
+        }
+        const cardH = (yy - yStart) - 12 + padY;
+
+        doc.setDrawColor(...G_LIGHT);
+        doc.setFillColor(255, 255, 255);
+        doc.setLineWidth(0.7);
+        doc.roundedRect(x, yStart, w, cardH, 3, 3, "FD");
+        doc.setFillColor(...accentColor);
+        doc.rect(x, yStart, 2.5, cardH, "F");
+
+        let yT = yStart + padY + 11;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(...accentColor);
+        const tLines2 = doc.splitTextToSize(item.title || "", w - padX*2);
+        tLines2.forEach(l => { doc.text(l, x + padX, yT); yT += 12; });
+        yT += 2;
+        if (item.body) {
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8.5);
+          doc.setTextColor(...TXT);
+          const bLines2 = doc.splitTextToSize(item.body, w - padX*2);
+          bLines2.forEach(l => { doc.text(l, x + padX, yT); yT += 11; });
+          yT += 2;
+        }
+        if (item.quote) {
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(8);
+          doc.setTextColor(...TXT_MUTED);
+          const qLines2 = doc.splitTextToSize(`"${item.quote}"`, w - padX*2);
+          qLines2.forEach(l => { doc.text(l, x + padX, yT); yT += 10; });
+        }
+        return yStart + cardH;
       };
 
-      const blocks = parseOnePager();
-      blocks.forEach(b => {
-        if (y > 760) { doc.addPage(); y = 72; }
-        if (b.type === "h1") {
-          y += 6;
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(20);
-          doc.setTextColor(31, 107, 58); // dark green
-          const lines = doc.splitTextToSize(b.text, contentW);
-          lines.forEach(ln => { doc.text(ln, marginX, y); y += 24; });
-          y += 6;
-        } else if (b.type === "h2") {
-          y += 10;
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(11);
-          doc.setTextColor(39, 174, 96); // mid green
-          doc.text(b.text.toUpperCase(), marginX, y);
-          y += 18;
-          // underline
-          doc.setDrawColor(200, 230, 210);
-          doc.setLineWidth(0.5);
-          doc.line(marginX, y - 14, marginX + contentW, y - 14);
-        } else if (b.type === "bullet") {
-          doc.setTextColor(39, 174, 96);
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(12);
-          doc.text("•", marginX, y);
-          // Render the body with possible bold markers
-          doc.setFontSize(11);
-          doc.setTextColor(58, 90, 70);
-          // Use a simple split for bold runs in bullet body
-          const body = b.text;
-          const lines = doc.splitTextToSize(body.replace(/\*\*/g, ""), contentW - 14);
-          lines.forEach((ln, i) => {
-            doc.setFont("helvetica", "normal");
-            doc.text(ln, marginX + 14, y + i * 14);
-          });
-          y += lines.length * 14 + 4;
-        } else {
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(11);
-          doc.setTextColor(58, 90, 70);
-          // Render with bold for **...**
-          const segs = b.text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
-          // Build a single paragraph by writing segs one after another with line wrap
-          let cx = marginX;
-          const lineH = 16;
-          segs.forEach(seg => {
-            const isBold = seg.startsWith("**") && seg.endsWith("**");
-            const clean = isBold ? seg.slice(2, -2) : seg;
-            doc.setFont("helvetica", isBold ? "bold" : "normal");
-            const words = clean.split(/(\s+)/);
-            words.forEach(w => {
-              const ww = doc.getTextWidth(w);
-              if (cx + ww > pageW - marginX) {
-                y += lineH; cx = marginX;
-                if (y > 760) { doc.addPage(); y = 72; }
-              }
-              doc.text(w, cx, y);
-              cx += ww;
-            });
-          });
-          y += lineH + 4;
+      const sectionHeader = (text, icon, color) => {
+        y += 4;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(...color);
+        doc.text(`${icon}  ${text.toUpperCase()}`, M, y);
+        doc.setDrawColor(...color);
+        doc.setLineWidth(0.5);
+        doc.line(M, y + 3, pageW - M, y + 3);
+        y += 14;
+      };
+
+      if (op.strengths?.length) {
+        sectionHeader("Strengths", "✓", G_MID);
+        const items = op.strengths;
+        for (let i = 0; i < items.length; i += 2) {
+          const yStart = y;
+          const yLeft  = drawCard(M, yStart, colW, items[i], G_MID);
+          const yRight = items[i+1] ? drawCard(M + colW + colGap, yStart, colW, items[i+1], G_MID) : yStart;
+          y = Math.max(yLeft, yRight) + 8;
         }
-      });
+      }
+
+      if (op.opportunities?.length) {
+        sectionHeader("Opportunities", "◐", ORANGE);
+        const items = op.opportunities;
+        for (let i = 0; i < items.length; i += 2) {
+          const yStart = y;
+          const yLeft  = drawCard(M, yStart, colW, items[i], ORANGE);
+          const yRight = items[i+1] ? drawCard(M + colW + colGap, yStart, colW, items[i+1], ORANGE) : yStart;
+          y = Math.max(yLeft, yRight) + 8;
+        }
+      }
+
+      if (op.blindspots?.length) {
+        sectionHeader("Blind spots", "!", RED);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(...TXT);
+        op.blindspots.forEach(b => {
+          const lines = doc.splitTextToSize("•  " + b, pageW - M*2 - 4);
+          lines.forEach(l => { doc.text(l, M + 4, y); y += 12; });
+        });
+        y += 4;
+      }
+
+      if (op.actions?.length) {
+        sectionHeader("Where to act", "→", G_DARK);
+        op.actions.forEach((a, i) => {
+          doc.setFillColor(...G_DARK);
+          doc.circle(M + 8, y - 2, 7, "F");
+          doc.setTextColor(255, 255, 255);
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(8);
+          doc.text(String(i+1), M + 8, y + 1, { align: "center" });
+
+          doc.setTextColor(...G_DARK);
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(10);
+          doc.text(a.label || "", M + 22, y);
+          y += 12;
+          if (a.body) {
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(9);
+            doc.setTextColor(...TXT);
+            const lines = doc.splitTextToSize(a.body, pageW - M*2 - 22);
+            lines.forEach(l => { doc.text(l, M + 22, y); y += 11; });
+          }
+          y += 4;
+        });
+      }
+
+      if (op.convergence) {
+        y += 6;
+        const footH = 50;
+        if (y + footH > pageH - M) { doc.addPage(); y = M; }
+        doc.setFillColor(...G_DARK);
+        doc.roundedRect(M, y, pageW - M*2, footH, 4, 4, "F");
+        const colW3 = (pageW - M*2) / 3;
+        const labels = ["VOICE", "TENSION", "DECISION"];
+        const values = [op.convergence.voice1, op.convergence.voice2, op.convergence.voice3];
+        for (let i = 0; i < 3; i++) {
+          const cx = M + colW3 * i + colW3/2;
+          doc.setTextColor(180, 220, 195);
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(7);
+          doc.text(labels[i], cx, y + 14, { align: "center" });
+          doc.setTextColor(255, 255, 255);
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(9);
+          const vLines = doc.splitTextToSize(values[i] || "", colW3 - 16);
+          vLines.forEach((l, j) => doc.text(l, cx, y + 28 + j*11, { align: "center" }));
+        }
+        y += footH + 4;
+      }
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.setTextColor(...TXT_MUTED);
+      doc.text(`Confidential · Generated ${new Date().toLocaleDateString()}`, pageW/2, pageH - 18, { align: "center" });
 
       doc.save(`one_pager_${new Date().toISOString().slice(0,10)}.pdf`);
     } catch (e) {
@@ -1195,7 +1383,7 @@ ${block}`;
     }
   };
 
-  // ── Download one-pager as Word (.docx) using docx library from CDN ──
+  // ── Download one-pager as Word (.docx) ──
   const loadDocx = () => new Promise((resolve, reject) => {
     if (window.docx) return resolve(window.docx);
     const s = document.createElement("script");
@@ -1206,77 +1394,177 @@ ${block}`;
   });
 
   const downloadOnePagerDOCX = async () => {
-    if (!onePager) return;
+    if (!onePager || onePager.error) return;
     try {
       const d = await loadDocx();
-      const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = d;
+      const { Document, Packer, Paragraph, TextRun,
+              Table, TableRow, TableCell, WidthType, BorderStyle,
+              ShadingType, AlignmentType } = d;
+      const op = onePager;
+      const G_DARK = "1F6B3A", G_MID = "27AE60", ORANGE = "E69138", RED = "C8504A";
+      const TXT = "1A3A26", MUTED = "7AAA88", BG = "F0F8F2";
 
-      // Convert text with **bold** markers into TextRun[] with proper formatting
-      const runs = (text) => {
-        const parts = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
-        return parts.map(seg => {
-          const isBold = seg.startsWith("**") && seg.endsWith("**");
-          return new TextRun({
-            text: isBold ? seg.slice(2, -2) : seg,
-            bold: isBold,
-          });
+      const children = [];
+
+      children.push(new Paragraph({
+        spacing: { after: 80 },
+        children: [new TextRun({ text: op.title || "Survey Insights", bold: true, size: 36, color: G_DARK })],
+      }));
+      if (op.subtitle) children.push(new Paragraph({
+        spacing: { after: 240 },
+        children: [new TextRun({ text: op.subtitle, italics: true, size: 18, color: MUTED })],
+      }));
+
+      if (op.executiveSummary) {
+        children.push(new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [new TableRow({
+            children: [new TableCell({
+              shading: { type: ShadingType.SOLID, color: BG, fill: BG },
+              borders: {
+                left: { style: BorderStyle.SINGLE, size: 24, color: G_MID },
+                top: { style: BorderStyle.SINGLE, size: 4, color: "C8E6D2" },
+                bottom: { style: BorderStyle.SINGLE, size: 4, color: "C8E6D2" },
+                right: { style: BorderStyle.SINGLE, size: 4, color: "C8E6D2" },
+              },
+              children: [new Paragraph({
+                spacing: { before: 120, after: 120 },
+                children: [new TextRun({ text: op.executiveSummary, size: 22, color: TXT })],
+              })],
+            })],
+          })],
+        }));
+        children.push(new Paragraph({ spacing: { after: 280 }, children: [] }));
+      }
+
+      const sectionHeader = (text, color) => new Paragraph({
+        spacing: { before: 240, after: 140 },
+        border: { bottom: { color, space: 4, style: BorderStyle.SINGLE, size: 8 } },
+        children: [new TextRun({ text: text.toUpperCase(), bold: true, size: 22, color, characterSpacing: 30 })],
+      });
+
+      const cardCell = (item, color) => new TableCell({
+        margins: { top: 140, bottom: 140, left: 200, right: 200 },
+        borders: {
+          left: { style: BorderStyle.SINGLE, size: 18, color },
+          top: { style: BorderStyle.SINGLE, size: 4, color: "C8E6D2" },
+          bottom: { style: BorderStyle.SINGLE, size: 4, color: "C8E6D2" },
+          right: { style: BorderStyle.SINGLE, size: 4, color: "C8E6D2" },
+        },
+        children: [
+          new Paragraph({
+            spacing: { after: 80 },
+            children: [new TextRun({ text: item.title || "", bold: true, size: 22, color })],
+          }),
+          ...(item.body ? [new Paragraph({
+            spacing: { after: item.quote ? 80 : 0 },
+            children: [new TextRun({ text: item.body, size: 18, color: TXT })],
+          })] : []),
+          ...(item.quote ? [new Paragraph({
+            children: [new TextRun({ text: `"${item.quote}"`, italics: true, size: 16, color: MUTED })],
+          })] : []),
+        ],
+      });
+
+      const cardGrid = (items, color) => {
+        const rows = [];
+        for (let i = 0; i < items.length; i += 2) {
+          rows.push(new TableRow({
+            children: [
+              cardCell(items[i], color),
+              items[i+1] ? cardCell(items[i+1], color) : new TableCell({
+                borders: { top:{style:BorderStyle.NONE},bottom:{style:BorderStyle.NONE},left:{style:BorderStyle.NONE},right:{style:BorderStyle.NONE}},
+                children: [new Paragraph({ children: [] })],
+              }),
+            ],
+          }));
+        }
+        return new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows,
+          columnWidths: [4750, 4750],
         });
       };
 
-      const blocks = parseOnePager();
-      const children = blocks.map(b => {
-        if (b.type === "h1") {
-          return new Paragraph({
-            heading: HeadingLevel.HEADING_1,
-            spacing: { before: 0, after: 200 },
-            children: [new TextRun({ text: b.text, bold: true, size: 36, color: "1F6B3A" })],
-          });
-        }
-        if (b.type === "h2") {
-          return new Paragraph({
-            heading: HeadingLevel.HEADING_2,
-            spacing: { before: 320, after: 160 },
-            children: [new TextRun({ text: b.text.toUpperCase(), bold: true, size: 22, color: "27AE60", characterSpacing: 30 })],
-          });
-        }
-        if (b.type === "bullet") {
-          return new Paragraph({
+      if (op.strengths?.length) {
+        children.push(sectionHeader("Strengths", G_MID));
+        children.push(cardGrid(op.strengths, G_MID));
+      }
+      if (op.opportunities?.length) {
+        children.push(sectionHeader("Opportunities", ORANGE));
+        children.push(cardGrid(op.opportunities, ORANGE));
+      }
+      if (op.blindspots?.length) {
+        children.push(sectionHeader("Blind spots", RED));
+        op.blindspots.forEach(b => {
+          children.push(new Paragraph({
             bullet: { level: 0 },
-            spacing: { after: 100 },
-            children: runs(b.text),
-          });
-        }
-        return new Paragraph({
-          spacing: { after: 160 },
-          children: runs(b.text),
+            spacing: { after: 80 },
+            children: [new TextRun({ text: b, size: 20, color: TXT })],
+          }));
         });
-      });
+      }
+      if (op.actions?.length) {
+        children.push(sectionHeader("Where to act", G_DARK));
+        op.actions.forEach((a, i) => {
+          children.push(new Paragraph({
+            spacing: { before: 100, after: 40 },
+            children: [
+              new TextRun({ text: `${i+1}.  `, bold: true, size: 22, color: G_DARK }),
+              new TextRun({ text: a.label || "", bold: true, size: 22, color: G_DARK }),
+            ],
+          }));
+          if (a.body) children.push(new Paragraph({
+            indent: { left: 360 },
+            spacing: { after: 100 },
+            children: [new TextRun({ text: a.body, size: 20, color: TXT })],
+          }));
+        });
+      }
+      if (op.convergence) {
+        children.push(new Paragraph({ spacing: { before: 240, after: 0 }, children: [] }));
+        children.push(new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [new TableRow({
+            children: [
+              { label: "VOICE",    value: op.convergence.voice1 },
+              { label: "TENSION",  value: op.convergence.voice2 },
+              { label: "DECISION", value: op.convergence.voice3 },
+            ].map(({ label, value }) => new TableCell({
+              shading: { type: ShadingType.SOLID, color: G_DARK, fill: G_DARK },
+              margins: { top: 200, bottom: 200, left: 160, right: 160 },
+              borders: { top:{style:BorderStyle.NONE},bottom:{style:BorderStyle.NONE},left:{style:BorderStyle.NONE},right:{style:BorderStyle.NONE}},
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  spacing: { after: 100 },
+                  children: [new TextRun({ text: label, bold: true, size: 14, color: "B4DCC3", characterSpacing: 30 })],
+                }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: value || "", italics: true, size: 18, color: "FFFFFF" })],
+                }),
+              ],
+            })),
+          })],
+        }));
+      }
 
       const doc = new Document({
-        styles: {
-          default: {
-            document: { run: { font: "Calibri", size: 22 } },
-          },
-        },
+        styles: { default: { document: { run: { font: "Calibri", size: 22 } } } },
         sections: [{
-          properties: {
-            page: { margin: { top: 1080, bottom: 1080, left: 1080, right: 1080 } },
-          },
+          properties: { page: { margin: { top: 720, bottom: 720, left: 720, right: 720 } } },
           children,
         }],
       });
-
       const blob = await Packer.toBlob(doc);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
-      a.download = `one_pager_${new Date().toISOString().slice(0,10)}.docx`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      a.href = url; a.download = `one_pager_${new Date().toISOString().slice(0,10)}.docx`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 100);
     } catch (e) {
-      alert("Could not download Word document: " + e.message);
+      alert("Could not download Word: " + e.message);
     }
   };
 
@@ -1729,10 +2017,16 @@ ${block}`;
                       <p style={{color:"#7aaa88",fontSize:"11px",letterSpacing:"2px",textTransform:"uppercase"}}>Distilling the strategic essentials...</p>
                     </div>
                   )}
-                  {onePager && !loadingOnePager && (
+                  {onePager && !loadingOnePager && onePager.error && (
+                    <div style={{background:"#fff2f2",border:"2px solid #faa",borderRadius:"14px",padding:"20px",marginBottom:"24px",color:"#c0392b"}}>
+                      ⚠️ {onePager.error}
+                    </div>
+                  )}
+                  {onePager && !loadingOnePager && !onePager.error && (
                     <div style={{background:"#fff",borderRadius:"14px",border:`2px solid ${BD}`,padding:"24px",marginBottom:"24px"}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px",paddingBottom:"12px",borderBottom:`2px solid ${LG}`,gap:"10px",flexWrap:"wrap"}}>
-                        <span style={{fontSize:"11px",fontWeight:"700",color:G,letterSpacing:"2px",textTransform:"uppercase"}}>📄 Strategic One-Pager</span>
+                      {/* Action bar */}
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"18px",paddingBottom:"14px",borderBottom:`2px solid ${LG}`,gap:"10px",flexWrap:"wrap"}}>
+                        <span style={{fontSize:"10px",fontWeight:"700",color:G,letterSpacing:"2px",textTransform:"uppercase"}}>📄 Executive Strategic One-Pager</span>
                         <div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}>
                           <button onClick={copyOnePager} style={{
                             padding:"6px 12px",borderRadius:"7px",fontSize:"11px",fontWeight:"600",
@@ -1751,36 +2045,54 @@ ${block}`;
                           </button>
                         </div>
                       </div>
-                      {/* Lightweight markdown rendering: headings, bold, bullets */}
-                      <div style={{fontSize:"14px",lineHeight:"1.7",color:"#1a3a26"}}>
-                        {onePager.split("\n").map((line, i) => {
-                          const trimmed = line.trim();
-                          if (!trimmed) return <div key={i} style={{height:"8px"}} />;
-                          // H1
-                          if (trimmed.startsWith("# ")) return (
-                            <h2 key={i} style={{fontSize:"22px",fontWeight:"800",color:DG,margin:"4px 0 14px",lineHeight:"1.3"}}>{trimmed.slice(2)}</h2>
-                          );
-                          // H2
-                          if (trimmed.startsWith("## ")) return (
-                            <h3 key={i} style={{fontSize:"13px",fontWeight:"700",color:G,letterSpacing:"1.5px",textTransform:"uppercase",margin:"18px 0 10px"}}>{trimmed.slice(3)}</h3>
-                          );
-                          // Bullets
-                          if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
-                            const text = trimmed.slice(2);
-                            return (
-                              <div key={i} style={{display:"flex",gap:"10px",marginBottom:"6px",paddingLeft:"4px"}}>
-                                <span style={{color:G,flexShrink:0}}>•</span>
-                                <span dangerouslySetInnerHTML={{__html: text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}} />
+
+                      {/* Title */}
+                      <h2 style={{fontSize:"24px",fontWeight:"800",color:DG,margin:"0 0 4px",lineHeight:"1.25"}}>{onePager.title}</h2>
+                      {onePager.metadata && (
+                        <p style={{fontSize:"12px",color:"#7aaa88",margin:"0 0 18px",fontStyle:"italic"}}>{onePager.metadata}</p>
+                      )}
+
+                      {/* Executive summary */}
+                      {onePager.executiveSummary && (
+                        <div style={{background:"#f0f8f2",borderLeft:`4px solid ${G}`,borderRadius:"6px",padding:"14px 16px",marginBottom:"22px",fontSize:"14px",lineHeight:"1.6",color:"#1a3a26"}}>
+                          {onePager.executiveSummary}
+                        </div>
+                      )}
+
+                      {/* Sections — fully AI-determined */}
+                      {Array.isArray(onePager.sections) && onePager.sections.map((sec, si) => (
+                        <div key={si} style={{marginBottom:"22px"}}>
+                          <div style={{fontSize:"11px",fontWeight:"700",color:G,letterSpacing:"2px",textTransform:"uppercase",borderBottom:`1px solid ${G}`,paddingBottom:"6px",marginBottom:"12px",display:"flex",alignItems:"center",gap:"8px"}}>
+                            {sec.icon && <span style={{fontSize:"14px",letterSpacing:0}}>{sec.icon}</span>}
+                            <span>{sec.title}</span>
+                          </div>
+                          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))",gap:"12px"}}>
+                            {(sec.cards || []).map((c, ci) => (
+                              <div key={ci} style={{background:"#fff",border:`1px solid ${LG}`,borderLeft:`4px solid ${G}`,borderRadius:"6px",padding:"12px 14px"}}>
+                                <div style={{fontSize:"13px",fontWeight:"700",color:DG,marginBottom:"6px"}}>{c.title}</div>
+                                {c.body && <div style={{fontSize:"12px",color:"#1a3a26",lineHeight:"1.55",marginBottom:c.quote?"8px":"0"}}>{c.body}</div>}
+                                {c.quote && <div style={{fontSize:"11px",color:"#7aaa88",fontStyle:"italic",lineHeight:"1.5"}}>"{c.quote}"</div>}
                               </div>
-                            );
-                          }
-                          // Paragraph with possible **bold**
-                          return (
-                            <p key={i} style={{margin:"0 0 10px"}}
-                               dangerouslySetInnerHTML={{__html: trimmed.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}} />
-                          );
-                        })}
-                      </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Tension footer (optional) */}
+                      {onePager.tension && onePager.tension.left && onePager.tension.right && (
+                        <div style={{marginTop:"6px",borderRadius:"10px",overflow:"hidden",background:DG}}>
+                          {onePager.tension.label && (
+                            <div style={{padding:"8px 12px",textAlign:"center",fontSize:"9px",fontWeight:"700",letterSpacing:"3px",color:"#b4dcc3"}}>
+                              {onePager.tension.label.toUpperCase()}
+                            </div>
+                          )}
+                          <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",alignItems:"center",padding:"14px 18px",color:"#fff"}}>
+                            <div style={{fontSize:"13px",fontStyle:"italic",lineHeight:"1.4",textAlign:"center"}}>"{onePager.tension.left}"</div>
+                            <div style={{fontSize:"20px",fontWeight:"700",padding:"0 16px",color:"#b4dcc3"}}>×</div>
+                            <div style={{fontSize:"13px",fontStyle:"italic",lineHeight:"1.4",textAlign:"center"}}>"{onePager.tension.right}"</div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
