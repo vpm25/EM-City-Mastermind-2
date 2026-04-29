@@ -1,64 +1,28 @@
 import { useState, useEffect, useRef } from "react";
 
 const LANGS = [
-  { code:"zh", name:"中文",            full:"Chinese (简体)",    flag:"🇨🇳" },
-  { code:"ja", name:"日本語",           full:"Japanese",          flag:"🇯🇵" },
-  { code:"ko", name:"한국어",           full:"Korean",            flag:"🇰🇷" },
-  { code:"th", name:"ภาษาไทย",         full:"Thai",              flag:"🇹🇭" },
-  { code:"vi", name:"Tiếng Việt",      full:"Vietnamese",        flag:"🇻🇳" },
-  { code:"id", name:"Bahasa Indonesia",full:"Indonesian",        flag:"🇮🇩" },
-  { code:"fil",name:"Filipino",        full:"Filipino",          flag:"🇵🇭" },
-  { code:"en", name:"English",         full:"English",           flag:"🇦🇺" },
+  { code:"en", name:"English",      full:"English",      flag:"🇬🇧" },
+  { code:"ru", name:"Русский",      full:"Russian",      flag:"🇷🇺" },
+  { code:"kk", name:"Қазақша",       full:"Kazakh",       flag:"🇰🇿" },
+  { code:"uz", name:"Oʻzbekcha",     full:"Uzbek",        flag:"🇺🇿" },
+  { code:"mn", name:"Монгол",        full:"Mongolian",    flag:"🇲🇳" },
+  { code:"ka", name:"ქართული",      full:"Georgian",     flag:"🇬🇪" },
+  { code:"hy", name:"Հայերեն",       full:"Armenian",     flag:"🇦🇲" },
+  { code:"az", name:"Azərbaycan",    full:"Azerbaijani",  flag:"🇦🇿" },
 ];
 
-const DEFAULT_QS = [
-  { id:1, active:true,
-    en:"What has been the most valuable aspect of your professional development this year?",
-    zh:"今年您在职业发展方面最有价值的收获是什么？",
-    ja:"今年、あなたの職業的成長において最も価値あるものは何でしたか？",
-    ko:"올해 귀하의 직업 발전에서 가장 가치 있었던 점은 무엇인가요?",
-    th:"ด้านใดของการพัฒนาวิชาชีพของคุณในปีนี้ที่มีคุณค่ามากที่สุด?",
-    vi:"Khía cạnh nào trong quá trình phát triển nghề nghiệp của bạn năm nay có giá trị nhất?",
-    id:"Aspek apa yang paling berharga dalam perkembangan profesional Anda tahun ini?",
-    fil:"Ano ang pinaka-mahalagang aspeto ng iyong propesyonal na pag-unlad ngayong taon?" },
-  { id:2, active:true,
-    en:"What obstacles are preventing your team from reaching its full potential?",
-    zh:"哪些障碍阻碍了您的团队发挥其全部潜力？",
-    ja:"チームが潜在能力を最大限に発揮するためにどのような障害がありますか？",
-    ko:"팀이 잠재력을 최대한 발휘하지 못하게 하는 장애물은 무엇인가요?",
-    th:"อุปสรรคใดที่ขัดขวางไม่ให้ทีมของคุณบรรลุศักยภาพสูงสุด?",
-    vi:"Những trở ngại nào đang ngăn cản nhóm của bạn phát huy hết tiềm năng?",
-    id:"Hambatan apa yang mencegah tim Anda mencapai potensi penuhnya?",
-    fil:"Anong mga hadlang ang pumipigil sa iyong koponan na maabot ang buong potensyal nito?" },
-  { id:3, active:true,
-    en:"How do you feel about the collaboration and communication within your organization?",
-    zh:"您对组织内部的协作和沟通有什么看法？",
-    ja:"組織内のコラボレーションとコミュニケーションについてどのようにお感じですか？",
-    ko:"조직 내 협업과 소통에 대해 어떻게 느끼시나요?",
-    th:"คุณรู้สึกอย่างไรกับการทำงานร่วมกันและการสื่อสารภายในองค์กรของคุณ?",
-    vi:"Bạn cảm thấy thế nào về sự hợp tác và giao tiếp trong tổ chức của bạn?",
-    id:"Bagaimana perasaan Anda tentang kolaborasi dan komunikasi dalam organisasi Anda?",
-    fil:"Paano mo nararamdaman ang pakikipagtulungan at komunikasyon sa iyong organisasyon?" },
-  { id:4, active:true,
-    en:"What one change would most improve your work experience in the next 6 months?",
-    zh:"在未来6个月内，什么样的改变最能改善您的工作体验？",
-    ja:"今後6ヶ月で、あなたの職場体験を最も改善する変化は何でしょうか？",
-    ko:"향후 6개월 동안 업무 경험을 가장 개선할 수 있는 변화는 무엇인가요?",
-    th:"การเปลี่ยนแปลงอะไรที่จะปรับปรุงประสบการณ์การทำงานของคุณมากที่สุดใน 6 เดือนข้างหน้า?",
-    vi:"Thay đổi nào sẽ cải thiện trải nghiệm làm việc của bạn nhất trong 6 tháng tới?",
-    id:"Perubahan apa yang paling meningkatkan pengalaman kerja Anda dalam 6 bulan ke depan?",
-    fil:"Anong pagbabago ang pinakamagpapabuti sa iyong karanasan sa trabaho sa susunod na 6 na buwan?" },
-];
+// Default empty — admin will create questions through the UI before the event.
+const DEFAULT_QS = [];
 
 const UI = {
-  en:  { next:"Next", submit:"Submit", ph:"Share your thoughts here...", thanks:"Thank you!", saved:"Your response has been recorded.", newP:"New Participant", q:"Question" },
-  zh:  { next:"下一步", submit:"提交", ph:"请在此分享您的想法...", thanks:"谢谢！", saved:"您的回答已记录。", newP:"新参与者", q:"问题" },
-  ja:  { next:"次へ", submit:"送信", ph:"ここにご意見をお書きください...", thanks:"ありがとうございます！", saved:"回答が記録されました。", newP:"次の参加者", q:"質問" },
-  ko:  { next:"다음", submit:"제출", ph:"여기에 의견을 나눠주세요...", thanks:"감사합니다!", saved:"응답이 기록되었습니다.", newP:"새 참가자", q:"질문" },
-  th:  { next:"ถัดไป", submit:"ส่ง", ph:"แบ่งปันความคิดของคุณที่นี่...", thanks:"ขอบคุณ!", saved:"บันทึกคำตอบแล้ว", newP:"ผู้เข้าร่วมใหม่", q:"คำถาม" },
-  vi:  { next:"Tiếp theo", submit:"Gửi", ph:"Chia sẻ suy nghĩ của bạn...", thanks:"Cảm ơn bạn!", saved:"Phản hồi đã được ghi lại.", newP:"Người mới", q:"Câu hỏi" },
-  id:  { next:"Lanjutkan", submit:"Kirim", ph:"Bagikan pendapat Anda di sini...", thanks:"Terima kasih!", saved:"Tanggapan Anda telah dicatat.", newP:"Peserta Baru", q:"Pertanyaan" },
-  fil: { next:"Susunod", submit:"Isumite", ph:"Ibahagi ang iyong mga saloobin...", thanks:"Salamat!", saved:"Naitala na ang iyong sagot.", newP:"Bagong Kalahok", q:"Tanong" },
+  en: { next:"Next",       submit:"Submit",   ph:"Share your thoughts here...",     thanks:"Thank you!",          saved:"Your response has been recorded.", newP:"New Participant",  q:"Question" },
+  ru: { next:"Далее",      submit:"Отправить", ph:"Поделитесь своими мыслями...",    thanks:"Спасибо!",            saved:"Ваш ответ записан.",                newP:"Новый участник",   q:"Вопрос" },
+  kk: { next:"Келесі",     submit:"Жіберу",    ph:"Ойларыңызбен бөлісіңіз...",       thanks:"Рахмет!",             saved:"Жауабыңыз тіркелді.",               newP:"Жаңа қатысушы",    q:"Сұрақ" },
+  uz: { next:"Keyingi",    submit:"Yuborish",  ph:"Fikrlaringiz bilan bo'lishing...", thanks:"Rahmat!",             saved:"Javobingiz qayd etildi.",           newP:"Yangi ishtirokchi", q:"Savol" },
+  mn: { next:"Дараах",     submit:"Илгээх",    ph:"Бодлоо энд хуваалцаарай...",       thanks:"Баярлалаа!",          saved:"Таны хариу бүртгэгдлээ.",           newP:"Шинэ оролцогч",    q:"Асуулт" },
+  ka: { next:"შემდეგი",   submit:"გაგზავნა",   ph:"გააზიარეთ თქვენი აზრები...",      thanks:"გმადლობთ!",            saved:"თქვენი პასუხი ჩაიწერა.",            newP:"ახალი მონაწილე",  q:"კითხვა" },
+  hy: { next:"Հաջորդը",   submit:"Ուղարկել",   ph:"Կիսվեք ձեր մտքերով...",          thanks:"Շնորհակալություն!",   saved:"Ձեր պատասխանը գրանցված է.",         newP:"Նոր մասնակից",     q:"Հարց" },
+  az: { next:"Növbəti",    submit:"Göndər",    ph:"Fikirlərinizi bölüşün...",        thanks:"Təşəkkür edirik!",    saved:"Cavabınız qeydə alındı.",           newP:"Yeni iştirakçı",   q:"Sual" },
 };
 
 const COLORS = [
@@ -187,7 +151,15 @@ export default function App() {
   const t       = UI[lang] || UI.en;
   const activeQs = questions.filter(q => q.active !== false);
   const currentQ = currentQId ? questions.find(q => q.id === currentQId) : activeQs[qIdx];
-  const getLang = (q, lang) => q?.[lang==='id'?'idLang':lang] || q?.en || '';
+  // Get the translation of a question for a given language code.
+  // Now reads from the translations JSONB. English is stored in q.en (top-level)
+  // for backwards compatibility and because it's the canonical source for AI translation.
+  const getLang = (q, lang) => {
+    if (!q) return '';
+    if (lang === 'en') return q.en || '';
+    const t = q.translations || {};
+    return t[lang] || q.en || '';
+  };
   const curAns  = currentQId ? (answers.length > 0 ? answers : [""]) : (answers.length === activeQs.length ? answers : activeQs.map(() => ""));
 
   // ── Map each unique participant_token to a stable number (#1, #2, ...) by first-seen order
@@ -301,23 +273,31 @@ export default function App() {
 
   const translateQuestion = async (englishText) => {
     setTranslating(true); setTransErr("");
-    const prompt = "Translate this question accurately into 7 languages. If you are not certain of a translation, return the English text unchanged for that language rather than guessing. Do not invent words or paraphrase loosely.\n\nReply ONLY in this format, one per line:\nZH: translation\nJA: translation\nKO: translation\nTH: translation\nVI: translation\nID: translation\nFIL: translation\n\nQuestion: " + englishText;
+    // Build the prompt dynamically from LANGS so adding a language only requires
+    // editing the LANGS array — no other code changes needed.
+    const targetLangs = LANGS.filter(l => l.code !== "en");
+    const formatLines = targetLangs.map(l => `${l.code.toUpperCase()}: translation`).join("\n");
+    const prompt =
+      "Translate this question accurately into the following languages. If you are not certain of a translation, return the English text unchanged for that language rather than guessing. Do not invent words or paraphrase loosely.\n\n" +
+      `Languages: ${targetLangs.map(l => l.full).join(", ")}\n\n` +
+      `Reply ONLY in this format, one per line:\n${formatLines}\n\n` +
+      `Question: ${englishText}`;
     try {
-      const response = await callAI(prompt, 1200);
+      const response = await callAI(prompt, 1500);
+      const lines = String(response).split("\n");
       const get = (code) => {
-        const lines = response.split("\n");
-        const line = lines.find(l => l.toUpperCase().startsWith(code+":"));
-        return line ? line.slice(code.length+1).trim() : englishText;
+        const upper = code.toUpperCase();
+        const line = lines.find(l => l.trim().toUpperCase().startsWith(upper + ":"));
+        return line ? line.slice(line.indexOf(":") + 1).trim() : englishText;
       };
-      return {
-        en:englishText,
-        zh:get("ZH"), ja:get("JA"), ko:get("KO"), th:get("TH"),
-        vi:get("VI"), idLang:get("ID"), fil:get("FIL"),
-      };
-    } catch(e) {
-      setTransErr("Translation error: "+e.message);
-      return { en:englishText, zh:englishText, ja:englishText, ko:englishText,
-        th:englishText, vi:englishText, idLang:englishText, fil:englishText };
+      const translations = {};
+      targetLangs.forEach(l => { translations[l.code] = get(l.code); });
+      return { en: englishText, translations };
+    } catch (e) {
+      setTransErr("Translation error: " + e.message);
+      const translations = {};
+      targetLangs.forEach(l => { translations[l.code] = englishText; });
+      return { en: englishText, translations };
     } finally { setTranslating(false); }
   };
 
@@ -461,9 +441,8 @@ export default function App() {
           const qData = await questionsRes.json();
           if (Array.isArray(qData) && qData.length > 0) {
             setQuestions(qData.map(q => ({
-              id: q.id, active: q.active,
-              en: q.en, zh: q.zh, ja: q.ja, ko: q.ko,
-              th: q.th, vi: q.vi, idLang: q.idLang ?? q.id_lang, fil: q.fil,
+              id: q.id, active: q.active, en: q.en,
+              translations: q.translations || {},
             })));
           }
         }
@@ -671,9 +650,8 @@ export default function App() {
       fetch("/api/questions").then(r=>r.json()).then(data => {
         if (Array.isArray(data) && data.length > 0) {
           setQuestions(data.map(q => ({
-            id: q.id, active: q.active,
-            en: q.en, zh: q.zh, ja: q.ja, ko: q.ko,
-            th: q.th, vi: q.vi, idLang: q.idLang ?? q.id_lang, fil: q.fil,
+            id: q.id, active: q.active, en: q.en,
+            translations: q.translations || {},
           })));
         }
       }).catch(() => {});
@@ -721,18 +699,18 @@ export default function App() {
     setExpandedTrans(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
   };
 
-  // Map a UI language code ("id", "zh", "en", etc.) to the property name on
-  // a question object. Indonesian needs special handling because "id" collides
-  // with the question's primary key — we use "idLang" instead.
-  const fieldFor = (code) => code === "id" ? "idLang" : code;
+  // Map a language code to its English name, used to construct the translation prompt.
+  // Built dynamically from the LANGS array so adding a language only requires editing LANGS.
+  const langNameFor = (code) => {
+    const lang = LANGS.find(l => l.code === code);
+    return lang?.full || code;
+  };
 
   // Re-translate ONE language for ONE question (used when the field is empty
-  // or fell back to English and the admin wants the IA to fill it in).
+  // or fell back to English and the admin wants the AI to fill it in).
   const retranslateOne = async (q, langCode) => {
-    const langNames = { zh:"Chinese", ja:"Japanese", ko:"Korean", th:"Thai",
-                        vi:"Vietnamese", id:"Indonesian", fil:"Filipino" };
-    const name = langNames[langCode];
-    if (!name) return;
+    if (langCode === 'en') return; // English is the source — never retranslate
+    const name = langNameFor(langCode);
     const key = q.id + "_" + langCode;
     setRetranslating(prev => ({ ...prev, [key]: true }));
     try {
@@ -740,8 +718,11 @@ export default function App() {
       const response = await callAI(prompt, 400);
       const translated = String(response || "").trim().replace(/^["']|["']$/g, "");
       if (translated) {
-        const field = fieldFor(langCode);
-        const updated = questions.map(qq => qq.id===q.id ? {...qq, [field]: translated} : qq);
+        const updated = questions.map(qq =>
+          qq.id === q.id
+            ? { ...qq, translations: { ...(qq.translations || {}), [langCode]: translated } }
+            : qq
+        );
         setQuestions(updated);
         await syncQuestions(updated);
       }
@@ -760,9 +741,14 @@ export default function App() {
     const key = qId+"_"+langCode;
     const newText = editingTrans[key];
     if (newText !== undefined) {
-      const field = fieldFor(langCode);
       setQuestions(prev => {
-        const updated = prev.map(q => q.id===qId ? {...q, [field]: newText} : q);
+        const updated = prev.map(q =>
+          q.id === qId
+            ? (langCode === 'en'
+                ? { ...q, en: newText }
+                : { ...q, translations: { ...(q.translations || {}), [langCode]: newText } })
+            : q
+        );
         syncQuestions(updated); // ← persist to DB so the edit survives refresh
         return updated;
       });
@@ -2309,7 +2295,7 @@ ${block}`;
                           <div>
                             <p style={{fontSize:"14px",color:"#1a3a26",lineHeight:"1.5"}}>{q.en}</p>
                             <p style={{fontSize:"11px",color:"#7aaa88",marginTop:"4px"}}>
-                              {[q.zh,q.ja,q.ko].filter(Boolean).map((s,j)=>(
+                              {Object.values(q.translations || {}).filter(Boolean).slice(0, 3).map((s, j) => (
                                 <span key={j} style={{marginRight:"8px"}}>{s?.slice(0,20)}…</span>
                               ))}
                             </p>
@@ -2371,18 +2357,9 @@ ${block}`;
                           </span>
                           <span style={{fontSize:"10px",color:"#7aaa88"}}>Click any field to edit</span>
                         </div>
-                        {[
-                          {code:"zh",flag:"🇨🇳",name:"Chinese"},
-                          {code:"ja",flag:"🇯🇵",name:"Japanese"},
-                          {code:"ko",flag:"🇰🇷",name:"Korean"},
-                          {code:"th",flag:"🇹🇭",name:"Thai"},
-                          {code:"vi",flag:"🇻🇳",name:"Vietnamese"},
-                          {code:"id",flag:"🇮🇩",name:"Indonesian"},
-                          {code:"fil",flag:"🇵🇭",name:"Filipino"},
-                        ].map(({code,flag,name}) => {
+                        {LANGS.filter(l => l.code !== "en").map(({code, flag, full: name}) => {
                           const key = q.id+"_"+code;
-                          const field = fieldFor(code);
-                          const value = q[field];
+                          const value = (q.translations || {})[code];
                           const isEditing = editingTrans[key] !== undefined;
                           return (
                             <div key={code} style={{padding:"10px 14px",borderBottom:`1px solid ${LG}`,
