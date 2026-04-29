@@ -133,6 +133,7 @@ export default function App() {
   const [loadingCustom, setLoadingCustom] = useState(null);       // qId currently running
   const [copiedSum,   setCopiedSum]   = useState(null); // question id
   const [copiedRaw,   setCopiedRaw]   = useState(null); // question id
+  const [collapsedQs, setCollapsedQs] = useState(new Set()); // qIds whose response list is collapsed
   const [slides,      setSlides]      = useState(null);
   const [loadingPres, setLoadingPres] = useState(false);
   const [onePager,    setOnePager]    = useState(null);   // strategic one-pager (markdown)
@@ -2128,6 +2129,16 @@ ${block}`;
                       cursor:"pointer",border:"2px solid #fcc",background:"#fff8f0",color:"#c0392b"}}>
                       🗑 Delete All Responses
                     </button>
+                    <button onClick={()=>setCollapsedQs(new Set(questions.map(q=>q.id)))} style={{
+                      padding:"9px 16px",borderRadius:"9px",fontSize:"12px",fontWeight:"600",
+                      cursor:"pointer",border:`2px solid ${BD}`,background:"#fff",color:"#7aaa88"}}>
+                      ▸ Collapse all
+                    </button>
+                    <button onClick={()=>setCollapsedQs(new Set())} style={{
+                      padding:"9px 16px",borderRadius:"9px",fontSize:"12px",fontWeight:"600",
+                      cursor:"pointer",border:`2px solid ${BD}`,background:"#fff",color:"#7aaa88"}}>
+                      ▾ Expand all
+                    </button>
                   </div>
 
                   {/* Generate Presentation button at top */}
@@ -2335,23 +2346,21 @@ ${block}`;
                       <div style={{marginBottom:"16px",paddingBottom:"14px",borderBottom:`2px solid ${LG}`}}>
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:"12px"}}>
                           <div style={{flex:1}}>
-                            <span style={{fontSize:"10px",fontWeight:"700",color:G,letterSpacing:"2px",textTransform:"uppercase",display:"block",marginBottom:"6px"}}>Question {qi+1}</span>
-                            <h3 style={{fontSize:"16px",fontWeight:"700",color:"#1a3a26",lineHeight:"1.4"}}>{q.en}</h3>
+                            <span style={{fontSize:"10px",fontWeight:"700",color:G,letterSpacing:"2px",textTransform:"uppercase",display:"block",marginBottom:"6px"}}>
+                              Question {qi+1} · {qResponses.length} response{qResponses.length===1?"":"s"}
+                            </span>
+                            <h3 style={{fontSize:"16px",fontWeight:"700",color:"#1a3a26",lineHeight:"1.4",cursor:"pointer"}}
+                              onClick={()=>setCollapsedQs(prev=>{
+                                const n=new Set(prev);
+                                if(n.has(q.id)) n.delete(q.id); else n.add(q.id);
+                                return n;
+                              })}
+                              title="Click to collapse / expand responses">
+                              <span style={{display:"inline-block",marginRight:"6px",fontSize:"12px",color:G,transform:collapsedQs.has(q.id)?"rotate(-90deg)":"none",transition:"transform .2s"}}>▾</span>
+                              {q.en}
+                            </h3>
                           </div>
 <div style={{display:"flex",gap:"8px",flexShrink:0}}>
-                            <button onClick={()=>{
-                              const sep = "\u2500".repeat(40);
-                              const lines = qResponses.map(({g,answer})=>"Participant #"+g.num+" ("+g.langName+"):\n"+answer);
-                              const text = "QUESTION "+(qi+1)+": "+q.en+"\n"+sep+"\n"+lines.join("\n\n");
-                              navigator.clipboard.writeText(text).then(()=>{
-                                setCopiedRaw(q.id); setTimeout(()=>setCopiedRaw(null),2000);
-                              });
-                            }} style={{padding:"9px 14px",borderRadius:"9px",fontSize:"12px",fontWeight:"600",
-                              cursor:"pointer",border:`2px solid ${copiedRaw===q.id?"#27ae60":BD}`,
-                              background:copiedRaw===q.id?"#d5f5e3":"#fff",
-                              color:copiedRaw===q.id?"#1a6b3a":"#7aaa88",flexShrink:0}}>
-                              {copiedRaw===q.id?"✓ Copied!":"📋 Copy"}
-                            </button>
                             {sessionOpen && (
                             <button onClick={()=>activateQuestion(q)} style={{
                               padding:"9px 14px",borderRadius:"9px",fontSize:"12px",fontWeight:"700",
@@ -2461,27 +2470,36 @@ ${block}`;
                         </div>
                       )}
 
-                      {/* Answers */}
-                      <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
-                        {qResponses.map(({g, answer},ri)=>(
-                          <div key={`${g.num}-${q.id}`} style={{padding:"12px 14px",background:"#fff",borderRadius:"10px",
-                            border:`2px solid ${LG}`}}>
-                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:"6px",alignItems:"center"}}>
-                              <span style={{fontSize:"11px",fontWeight:"700",color:"#1a3a26"}}>{g.flag} Participant #{g.num}</span>
-                              <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
-                                <span style={{fontSize:"10px",color:"#7aaa88"}}>{g.langName} · {g.time}</span>
-                                <button onClick={()=>deleteParticipant(g)} style={{
-                                  background:"none",border:"none",cursor:"pointer",
-                                  fontSize:"12px",color:"#faa",padding:"0",lineHeight:"1"}}
-                                  title={`Delete all responses from Participant #${g.num}`}>🗑</button>
+                      {/* Answers — collapsible */}
+                      {!collapsedQs.has(q.id) && (
+                        <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
+                          {qResponses.map(({g, answer},ri)=>(
+                            <div key={`${g.num}-${q.id}`} style={{padding:"12px 14px",background:"#fff",borderRadius:"10px",
+                              border:`2px solid ${LG}`}}>
+                              <div style={{display:"flex",justifyContent:"space-between",marginBottom:"6px",alignItems:"center"}}>
+                                <span style={{fontSize:"11px",fontWeight:"700",color:"#1a3a26"}}>{g.flag} Participant #{g.num}</span>
+                                <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+                                  <span style={{fontSize:"10px",color:"#7aaa88"}}>{g.langName} · {g.time}</span>
+                                  <button onClick={()=>deleteParticipant(g)} style={{
+                                    background:"none",border:"none",cursor:"pointer",
+                                    fontSize:"12px",color:"#faa",padding:"0",lineHeight:"1"}}
+                                    title={`Delete all responses from Participant #${g.num}`}>🗑</button>
+                                </div>
                               </div>
+                              <p style={{fontSize:"14px",color:"#3a5a46",lineHeight:"1.65"}}>
+                                {answer}
+                              </p>
                             </div>
-                            <p style={{fontSize:"14px",color:"#3a5a46",lineHeight:"1.65"}}>
-                              {answer}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
+                      {collapsedQs.has(q.id) && (
+                        <div style={{padding:"10px 14px",background:LG,borderRadius:"8px",border:`1px dashed ${BD}`,
+                          textAlign:"center",fontSize:"12px",color:"#7aaa88",cursor:"pointer"}}
+                          onClick={()=>setCollapsedQs(prev=>{ const n=new Set(prev); n.delete(q.id); return n; })}>
+                          {qResponses.length} response{qResponses.length===1?"":"s"} hidden — click to show
+                        </div>
+                      )}
                     </div>
                     );
                   })}
