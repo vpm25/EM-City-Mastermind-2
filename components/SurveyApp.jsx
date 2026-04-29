@@ -166,6 +166,8 @@ export default function App() {
   const [copiedRaw,   setCopiedRaw]   = useState(null); // question id
   const [slides,      setSlides]      = useState(null);
   const [loadingPres, setLoadingPres] = useState(false);
+  const [onePager,    setOnePager]    = useState(null);   // strategic one-pager (markdown)
+  const [loadingOnePager, setLoadingOnePager] = useState(false);
   const [slideIdx,    setSlideIdx]    = useState(0);
   const [hiddenSlides,setHiddenSlides]= useState(new Set());
   const [pw,          setPw]          = useState("");
@@ -812,12 +814,52 @@ export default function App() {
       setLoadingSum(null);
       return;
     }
+    const nR = qResps.length;
     const ans = qResps.map(({ g, answer }) =>
       `- Participant #${g.num} (${g.langName}): ${answer}`
     ).join("\n");
-    const prompt = `Summarize these survey responses for the question: "${q.en}"\n\nResponses:\n${ans}\n\nWrite 3-5 concise bullet points capturing key themes. Start each with "•".`;
+
+    const prompt = `You are a world-class strategic executive consultant with 20+ years of experience analyzing organizational surveys for Fortune 500 leadership teams. You specialize in turning raw qualitative feedback into insights that drive decisions.
+
+You are now being asked to analyze the responses to ONE specific survey question and produce a tight set of strategic insights.
+
+CRITICAL RULES:
+- Every claim must come directly from the responses below.
+- DO NOT invent numbers, demographics, or details that are not explicitly in the data.
+- Your credibility depends on every observation being grounded in actual responses.
+
+QUESTION:
+"${q.en}"
+
+NUMBER OF RESPONSES: ${nR}
+
+YOUR TASK:
+Write 3-5 strategic bullet points. Each bullet should help leadership make a decision — answer the question "so what?". Focus on:
+- Patterns, frequency, and what stands out across the responses
+- What the data implies for the organization (not just what was said)
+- Specific words or phrases from the actual responses where they support a point
+
+EXAMPLES OF GOOD BULLETS (each tells leadership something they can act on):
+  • Leadership development was the single most-mentioned theme, cited in ${Math.round(nR*0.6)} of ${nR} responses — strongly signaling where investment will resonate
+  • Concerns about clarity in development pathways surfaced in a small but consistent minority — a quiet signal worth attention before it becomes louder
+  • Three dominant themes emerged: mentorship, cross-functional work, and stretch assignments — each pointing to a different lever leadership can pull
+
+DO NOT produce trivial observations like:
+  ✗ "Responses in Japanese were shorter than responses in English" (linguistic, not strategic)
+  ✗ "Most participants gave a one-word answer" (about format, not content)
+  ✗ "Participants varied in their responses" (vacuous)
+
+STYLE:
+- Plain English. No jargon.
+- Start each bullet with "•".
+- Be confident where the data supports it. Be hedged where it doesn't.
+- If only ${nR} response${nR===1?"":"s"} ${nR===1?"was":"were"} collected, acknowledge that the sample is small if it materially limits the conclusions you can draw.
+
+RESPONSES:
+${ans}`;
+
     try {
-      const raw = await callAI(prompt, 800);
+      const raw = await callAI(prompt, 1000);
       setQSummaries(prev=>({...prev,[q.id]:raw}));
     } catch(e) {
       setQSummaries(prev=>({...prev,[q.id]:"Error: "+e.message}));
@@ -936,6 +978,308 @@ export default function App() {
     }
   };
 
+  // ── Generate strategic one-pager (markdown summary of summaries) ──
+  const generateOnePager = async () => {
+    if (!responses.length) return;
+    setLoadingOnePager(true); setOnePager(null);
+
+    const answeredQIds = new Set(
+      participantGroups.flatMap(g => Object.keys(g.answersByQId).map(Number))
+    );
+    const presQs = questions.filter(q => q.active !== false || answeredQIds.has(q.id));
+
+    const block = participantGroups.map(g =>
+      `Participant #${g.num} (${g.langName}):\n`+
+      presQs.map((q,i)=>`Q${i+1}: ${q.en}\nAnswer: ${answerFor(g, q, i)||"(no answer)"}`).join("\n")
+    ).join("\n\n");
+
+    const nP = participantGroups.length;
+    const nQ = presQs.length;
+
+    const prompt = `You are a world-class strategic executive consultant with 20+ years of experience advising Fortune 500 leadership teams. You are exceptional at distilling messy qualitative feedback into a single page of strategic clarity that a CEO or board member can read in under 3 minutes and walk away with what matters.
+
+You are now being asked to create a STRATEGIC ONE-PAGER from a survey of ${nP} participant${nP===1?"":"s"} who answered ${nQ} question${nQ===1?"":"s"}. This is not a summary of every response — it is a synthesis of the synthesis. Think of it as the executive briefing that lands on a leader's desk before a board meeting.
+
+CRITICAL RULES:
+- Every claim must come directly from the data provided below.
+- DO NOT invent numbers, demographics, or details not present in the responses.
+- Be concise. A one-pager is short by definition. Cut anything that doesn't earn its place.
+- Speak in the language of decisions, not descriptions.
+- Where there is a clear pattern, name it. Where the signal is mixed, say so honestly.
+- This is NOT a transcript. Synthesize. Compress. Elevate.
+
+REQUIRED STRUCTURE (return as Markdown, no JSON):
+
+# {Concise, strategic title — not generic. Should hint at the core finding.}
+
+**At a glance:** {ONE sentence (max 25 words) capturing the single most important takeaway from the entire survey. This is what a leader will remember if they read nothing else.}
+
+## What we heard
+{2-4 short bullets summarizing the dominant themes ACROSS all questions. These are the patterns that emerged repeatedly. Each bullet should be specific and grounded — not vague platitudes.}
+
+## What it means
+{2-4 short bullets translating the themes into strategic implications. Each bullet should answer "so what?". This is where you connect the dots and surface what leadership should pay attention to.}
+
+## Where to act
+{2-3 concrete, prioritized recommendations. Each should be specific enough to assign to a person or team. Avoid generic advice like "improve communication" — be concrete: who, what, why.}
+
+## What we did NOT learn
+{1-2 bullets honestly naming gaps or limitations in the data. This is what builds your credibility — leaders trust analysis that knows its own limits.}
+
+STYLE:
+- Plain English. No jargon. No buzzwords.
+- Active voice. Short sentences.
+- Be confident where the data supports it. Be hedged where it doesn't.
+- Total length should fit on one printed page (roughly 250-400 words of body content).
+
+ACTUAL SURVEY RESPONSES:
+${block}`;
+
+    try {
+      const raw = await callAI(prompt, 2000);
+      // Strip any wrapping code fences if the model added them
+      const cleaned = String(raw).replace(/^```(?:markdown)?\s*/i, "").replace(/```\s*$/, "").trim();
+      setOnePager(cleaned);
+    } catch(e) {
+      setOnePager("Error generating one-pager: " + e.message);
+    }
+    setLoadingOnePager(false);
+  };
+
+  // Copy the one-pager (as markdown) to clipboard
+  const copyOnePager = () => {
+    if (!onePager) return;
+    navigator.clipboard.writeText(onePager).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  // Parse the one-pager markdown into structured blocks for PDF/Word renderers.
+  // Returns: [{type: "h1"|"h2"|"para"|"bullet", text: "..."}]
+  const parseOnePager = () => {
+    if (!onePager) return [];
+    const blocks = [];
+    onePager.split("\n").forEach(line => {
+      const t = line.trim();
+      if (!t) return;
+      if (t.startsWith("# "))      blocks.push({ type: "h1", text: t.slice(2) });
+      else if (t.startsWith("## "))blocks.push({ type: "h2", text: t.slice(3) });
+      else if (t.startsWith("- ") || t.startsWith("* "))
+                                   blocks.push({ type: "bullet", text: t.slice(2) });
+      else                          blocks.push({ type: "para", text: t });
+    });
+    return blocks;
+  };
+
+  // ── Download one-pager as PDF (uses jsPDF from CDN) ──
+  const loadJsPDF = () => new Promise((resolve, reject) => {
+    if (window.jspdf?.jsPDF) return resolve(window.jspdf.jsPDF);
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+    s.onload = () => resolve(window.jspdf?.jsPDF);
+    s.onerror = () => reject(new Error("Could not load jsPDF"));
+    document.head.appendChild(s);
+  });
+
+  const downloadOnePagerPDF = async () => {
+    if (!onePager) return;
+    try {
+      const jsPDF = await loadJsPDF();
+      const doc = new jsPDF({ unit: "pt", format: "letter" }); // 612 x 792 pt
+      const pageW = 612, marginX = 54;     // 0.75" margin
+      const contentW = pageW - marginX * 2;
+      let y = 72;                          // top margin
+
+      // Helpers — strip **bold** markers for plain rendering, but bold the styled
+      // segments where possible by using setFont("bold").
+      const writeStyled = (text, baseSize, baseColor=[26,58,38], baseStyle="normal") => {
+        const parts = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+        let cursorX = marginX;
+        const lineH = baseSize * 1.4;
+        parts.forEach(seg => {
+          const isBold = seg.startsWith("**") && seg.endsWith("**");
+          const clean  = isBold ? seg.slice(2, -2) : seg;
+          doc.setFont("helvetica", isBold ? "bold" : baseStyle);
+          doc.setFontSize(baseSize);
+          doc.setTextColor(...baseColor);
+          // word-wrap each segment respecting the cursor position
+          const words = clean.split(" ");
+          words.forEach((word, idx) => {
+            const piece = (idx === 0 ? "" : " ") + word;
+            const w = doc.getTextWidth(piece);
+            if (cursorX + w > pageW - marginX) {
+              y += lineH;
+              cursorX = marginX;
+              if (y > 760) { doc.addPage(); y = 72; }
+              doc.text(word, cursorX, y);
+              cursorX += doc.getTextWidth(word);
+            } else {
+              doc.text(piece, cursorX, y);
+              cursorX += w;
+            }
+          });
+        });
+        y += lineH;
+      };
+
+      const blocks = parseOnePager();
+      blocks.forEach(b => {
+        if (y > 760) { doc.addPage(); y = 72; }
+        if (b.type === "h1") {
+          y += 6;
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(20);
+          doc.setTextColor(31, 107, 58); // dark green
+          const lines = doc.splitTextToSize(b.text, contentW);
+          lines.forEach(ln => { doc.text(ln, marginX, y); y += 24; });
+          y += 6;
+        } else if (b.type === "h2") {
+          y += 10;
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(11);
+          doc.setTextColor(39, 174, 96); // mid green
+          doc.text(b.text.toUpperCase(), marginX, y);
+          y += 18;
+          // underline
+          doc.setDrawColor(200, 230, 210);
+          doc.setLineWidth(0.5);
+          doc.line(marginX, y - 14, marginX + contentW, y - 14);
+        } else if (b.type === "bullet") {
+          doc.setTextColor(39, 174, 96);
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(12);
+          doc.text("•", marginX, y);
+          // Render the body with possible bold markers
+          doc.setFontSize(11);
+          doc.setTextColor(58, 90, 70);
+          // Use a simple split for bold runs in bullet body
+          const body = b.text;
+          const lines = doc.splitTextToSize(body.replace(/\*\*/g, ""), contentW - 14);
+          lines.forEach((ln, i) => {
+            doc.setFont("helvetica", "normal");
+            doc.text(ln, marginX + 14, y + i * 14);
+          });
+          y += lines.length * 14 + 4;
+        } else {
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(11);
+          doc.setTextColor(58, 90, 70);
+          // Render with bold for **...**
+          const segs = b.text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+          // Build a single paragraph by writing segs one after another with line wrap
+          let cx = marginX;
+          const lineH = 16;
+          segs.forEach(seg => {
+            const isBold = seg.startsWith("**") && seg.endsWith("**");
+            const clean = isBold ? seg.slice(2, -2) : seg;
+            doc.setFont("helvetica", isBold ? "bold" : "normal");
+            const words = clean.split(/(\s+)/);
+            words.forEach(w => {
+              const ww = doc.getTextWidth(w);
+              if (cx + ww > pageW - marginX) {
+                y += lineH; cx = marginX;
+                if (y > 760) { doc.addPage(); y = 72; }
+              }
+              doc.text(w, cx, y);
+              cx += ww;
+            });
+          });
+          y += lineH + 4;
+        }
+      });
+
+      doc.save(`one_pager_${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch (e) {
+      alert("Could not download PDF: " + e.message);
+    }
+  };
+
+  // ── Download one-pager as Word (.docx) using docx library from CDN ──
+  const loadDocx = () => new Promise((resolve, reject) => {
+    if (window.docx) return resolve(window.docx);
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js";
+    s.onload = () => resolve(window.docx);
+    s.onerror = () => reject(new Error("Could not load docx library"));
+    document.head.appendChild(s);
+  });
+
+  const downloadOnePagerDOCX = async () => {
+    if (!onePager) return;
+    try {
+      const d = await loadDocx();
+      const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = d;
+
+      // Convert text with **bold** markers into TextRun[] with proper formatting
+      const runs = (text) => {
+        const parts = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+        return parts.map(seg => {
+          const isBold = seg.startsWith("**") && seg.endsWith("**");
+          return new TextRun({
+            text: isBold ? seg.slice(2, -2) : seg,
+            bold: isBold,
+          });
+        });
+      };
+
+      const blocks = parseOnePager();
+      const children = blocks.map(b => {
+        if (b.type === "h1") {
+          return new Paragraph({
+            heading: HeadingLevel.HEADING_1,
+            spacing: { before: 0, after: 200 },
+            children: [new TextRun({ text: b.text, bold: true, size: 36, color: "1F6B3A" })],
+          });
+        }
+        if (b.type === "h2") {
+          return new Paragraph({
+            heading: HeadingLevel.HEADING_2,
+            spacing: { before: 320, after: 160 },
+            children: [new TextRun({ text: b.text.toUpperCase(), bold: true, size: 22, color: "27AE60", characterSpacing: 30 })],
+          });
+        }
+        if (b.type === "bullet") {
+          return new Paragraph({
+            bullet: { level: 0 },
+            spacing: { after: 100 },
+            children: runs(b.text),
+          });
+        }
+        return new Paragraph({
+          spacing: { after: 160 },
+          children: runs(b.text),
+        });
+      });
+
+      const doc = new Document({
+        styles: {
+          default: {
+            document: { run: { font: "Calibri", size: 22 } },
+          },
+        },
+        sections: [{
+          properties: {
+            page: { margin: { top: 1080, bottom: 1080, left: 1080, right: 1080 } },
+          },
+          children,
+        }],
+      });
+
+      const blob = await Packer.toBlob(doc);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `one_pager_${new Date().toISOString().slice(0,10)}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 100);
+    } catch (e) {
+      alert("Could not download Word document: " + e.message);
+    }
+  };
+
   // ── Generate AI Presentation ──
   const generatePresentation = async () => {
     if (!responses.length) return;
@@ -961,7 +1305,9 @@ export default function App() {
     const nResp = responses.length;
     const expectedSlides = 1 + (nQ * 2); // overview + (insights+summary per question)
 
-    const prompt = `You are creating a presentation from REAL survey data. DO NOT invent or assume any numbers, demographics, cohort sizes, or details that are not explicitly in the data below.
+    const prompt = `You are a world-class strategic executive consultant with 20+ years of experience analyzing organizational surveys for Fortune 500 leadership teams. You specialize in turning raw qualitative feedback into board-ready strategic narratives that drive decisions.
+
+You are now being asked to create a presentation from REAL survey data. DO NOT invent or assume any numbers, demographics, cohort sizes, or details that are not explicitly in the data below. Your credibility depends on every claim being grounded in the actual responses provided.
 
 DATA SUMMARY (use these exact numbers, do not change them):
 - ${nP} participant${nP===1?"":"s"} took part in the survey
@@ -971,8 +1317,36 @@ DATA SUMMARY (use these exact numbers, do not change them):
 
 REQUIRED STRUCTURE — generate EXACTLY ${expectedSlides} slide${expectedSlides===1?"":"s"} in this order:
 1. ONE "OVERVIEW" slide summarizing the survey at a high level. Mention the number of participants and questions truthfully. Do NOT say things like "0 questions were formally answered" — every question listed below was asked, and the responses are the data you must summarize.
-${presQs.map((q,i)=>`${i*2+2}. "Q${i+1} INSIGHTS" slide — key themes from responses to: "${q.en}"
-${i*2+3}. "Q${i+1} SUMMARY" slide — narrative synthesis of what participants said about: "${q.en}"`).join("\n")}
+
+For each question, generate TWO DISTINCT slides. The two slides must NOT repeat each other:
+
+INSIGHTS slide = ANALYTICAL. Focus on patterns, frequency, distribution, and what stands out across the dataset. Examples of GOOD insight bullets (each tells leadership something they can act on):
+  • "Leadership development was the single most-mentioned theme, cited in 64% of responses"
+  • "Three dominant themes emerged: mentorship, cross-functional collaboration, and stretch assignments"
+  • "Participants in their first year cited 'finding their voice'; those past year three cited 'developing others' — a clear shift in growth needs by tenure"
+  • "Communication gaps were named most often by participants in cross-regional roles, suggesting a structural issue rather than an individual one"
+  • "While 88% described positive growth experiences, 12% raised concerns about lack of clarity in development pathways — a small but consistent signal worth attention"
+
+DO NOT produce trivial or non-actionable observations like:
+  ✗ "Responses in Japanese were shorter than responses in English" (linguistic, not strategic)
+  ✗ "Most participants gave a one-word answer" (about format, not content)
+  ✗ "Participants varied in their responses" (vacuous)
+  ✗ Counts of language distribution unless they reveal a meaningful pattern about the topic
+
+Insight bullets should help leadership make decisions. Each bullet should answer "so what?".
+
+SUMMARY slide = NARRATIVE. Synthesize what participants actually said in flowing, descriptive sentences. Tell the story of the responses. Examples of GOOD summary bullets:
+  • "Participants described a year defined by stretching beyond their comfort zones — taking on first-time leadership roles, leading large initiatives, and learning to delegate"
+  • "Many spoke about the value of mentorship relationships, both as mentees gaining direction and as mentors investing in newer team members"
+  • "There was a strong sentiment of growth through challenge: difficult projects, ambiguous problems, and unfamiliar regions surfaced repeatedly as turning points"
+Summary bullets are longer, qualitative, and read like an executive briefing.
+
+The two slides answer different questions:
+- INSIGHTS answers: "What does the data show that we should act on?"
+- SUMMARY answers: "What did people say, in their own voice?"
+
+${presQs.map((q,i)=>`${i*2+2}. "Q${i+1} INSIGHTS" slide for: "${q.en}"
+${i*2+3}. "Q${i+1} SUMMARY" slide for: "${q.en}"`).join("\n")}
 
 RULES:
 - Every quote, theme, and insight MUST come directly from the responses below.
@@ -980,6 +1354,7 @@ RULES:
 - If a specific question received no answer from anyone, you can note that for that question — but do not generalise it to "no questions were answered".
 - Use specific words and phrases from the actual responses where possible.
 - 3-5 bullet points per slide. Each bullet should be a complete, specific thought.
+- Do NOT make INSIGHTS and SUMMARY slides repeat each other. They must offer different angles.
 
 Return ONLY valid JSON (no markdown, no backticks, no commentary):
 {"presentationTitle":"City Development Mastermind Program Results","slides":[
@@ -991,7 +1366,9 @@ Return ONLY valid JSON (no markdown, no backticks, no commentary):
 ACTUAL SURVEY RESPONSES:
 ${block}`;
     try {
-      const raw = await callAI(prompt, 4000);
+      // Allow plenty of room: 11 slides at ~250 tokens each = ~2700 tokens, but
+      // with rich INSIGHTS/SUMMARY for many questions we need headroom.
+      const raw = await callAI(prompt, 8000);
       const m = raw.match(/\{[\s\S]*\}/);
       if (!m) throw new Error("No JSON in response");
       setSlides(JSON.parse(m[0]));
@@ -1330,11 +1707,82 @@ ${block}`;
                   {/* Generate Presentation button at top */}
                   <button onClick={generatePresentation} disabled={loadingPres} style={{
                     width:"100%",padding:"16px",border:"none",borderRadius:"12px",fontSize:"13px",
-                    fontWeight:"700",cursor:loadingPres?"not-allowed":"pointer",marginBottom:"24px",
+                    fontWeight:"700",cursor:loadingPres?"not-allowed":"pointer",marginBottom:"12px",
                     background:`linear-gradient(135deg,${DG},${G})`,color:"#fff",
                     boxShadow:"0 4px 15px rgba(39,174,96,.25)",opacity:loadingPres?.6:1}}>
                     {loadingPres?"⏳ Generating presentation...":slides?"🔄 Regenerate AI Presentation":"✨ Generate AI Presentation"}
                   </button>
+
+                  {/* Generate One-Pager button */}
+                  <button onClick={generateOnePager} disabled={loadingOnePager} style={{
+                    width:"100%",padding:"14px",border:`2px solid ${G}`,borderRadius:"12px",fontSize:"13px",
+                    fontWeight:"700",cursor:loadingOnePager?"not-allowed":"pointer",marginBottom:"24px",
+                    background:"#fff",color:DG,opacity:loadingOnePager?.6:1}}>
+                    {loadingOnePager?"⏳ Distilling key insights...":onePager?"🔄 Regenerate Strategic One-Pager":"📄 Generate Strategic One-Pager"}
+                  </button>
+
+                  {/* One-pager viewer */}
+                  {loadingOnePager && (
+                    <div style={{textAlign:"center",padding:"30px",background:"#fff",borderRadius:"14px",border:`2px solid ${BD}`,marginBottom:"24px"}}>
+                      <div style={{width:"32px",height:"32px",border:`3px solid ${BD}`,borderTopColor:G,
+                        borderRadius:"50%",animation:"spin .9s linear infinite",margin:"0 auto 14px"}} />
+                      <p style={{color:"#7aaa88",fontSize:"11px",letterSpacing:"2px",textTransform:"uppercase"}}>Distilling the strategic essentials...</p>
+                    </div>
+                  )}
+                  {onePager && !loadingOnePager && (
+                    <div style={{background:"#fff",borderRadius:"14px",border:`2px solid ${BD}`,padding:"24px",marginBottom:"24px"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px",paddingBottom:"12px",borderBottom:`2px solid ${LG}`,gap:"10px",flexWrap:"wrap"}}>
+                        <span style={{fontSize:"11px",fontWeight:"700",color:G,letterSpacing:"2px",textTransform:"uppercase"}}>📄 Strategic One-Pager</span>
+                        <div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}>
+                          <button onClick={copyOnePager} style={{
+                            padding:"6px 12px",borderRadius:"7px",fontSize:"11px",fontWeight:"600",
+                            cursor:"pointer",border:`2px solid ${BD}`,background:copied?G:"#fff",color:copied?"#fff":DG}}>
+                            {copied?"✓ Copied":"📋 Copy"}
+                          </button>
+                          <button onClick={downloadOnePagerPDF} style={{
+                            padding:"6px 12px",borderRadius:"7px",fontSize:"11px",fontWeight:"600",
+                            cursor:"pointer",border:`2px solid ${G}`,background:"#fff",color:DG}}>
+                            ⬇ PDF
+                          </button>
+                          <button onClick={downloadOnePagerDOCX} style={{
+                            padding:"6px 12px",borderRadius:"7px",fontSize:"11px",fontWeight:"600",
+                            cursor:"pointer",border:`2px solid ${G}`,background:"#fff",color:DG}}>
+                            ⬇ Word
+                          </button>
+                        </div>
+                      </div>
+                      {/* Lightweight markdown rendering: headings, bold, bullets */}
+                      <div style={{fontSize:"14px",lineHeight:"1.7",color:"#1a3a26"}}>
+                        {onePager.split("\n").map((line, i) => {
+                          const trimmed = line.trim();
+                          if (!trimmed) return <div key={i} style={{height:"8px"}} />;
+                          // H1
+                          if (trimmed.startsWith("# ")) return (
+                            <h2 key={i} style={{fontSize:"22px",fontWeight:"800",color:DG,margin:"4px 0 14px",lineHeight:"1.3"}}>{trimmed.slice(2)}</h2>
+                          );
+                          // H2
+                          if (trimmed.startsWith("## ")) return (
+                            <h3 key={i} style={{fontSize:"13px",fontWeight:"700",color:G,letterSpacing:"1.5px",textTransform:"uppercase",margin:"18px 0 10px"}}>{trimmed.slice(3)}</h3>
+                          );
+                          // Bullets
+                          if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+                            const text = trimmed.slice(2);
+                            return (
+                              <div key={i} style={{display:"flex",gap:"10px",marginBottom:"6px",paddingLeft:"4px"}}>
+                                <span style={{color:G,flexShrink:0}}>•</span>
+                                <span dangerouslySetInnerHTML={{__html: text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}} />
+                              </div>
+                            );
+                          }
+                          // Paragraph with possible **bold**
+                          return (
+                            <p key={i} style={{margin:"0 0 10px"}}
+                               dangerouslySetInnerHTML={{__html: trimmed.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}} />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Presentation viewer */}
                   {loadingPres && (
