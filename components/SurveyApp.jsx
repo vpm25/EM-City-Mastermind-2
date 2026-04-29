@@ -512,7 +512,7 @@ export default function App() {
           setWaitingNext(true);
         }
       } catch(e) { console.log("polling error", e); }
-    }, 3000);
+    }, 8000); // ← was 3000. Slower polling reduces backend load by ~62% with no UX impact.
     pollRefHandle.current = interval;
     return interval;
   };
@@ -679,9 +679,14 @@ export default function App() {
       }).catch(() => {});
     };
     loadQs();
-    const interval = setInterval(loadQs, 3000);
+    // Adaptive polling: admin needs near-real-time updates while editing questions,
+    // but participants don't need it because questions don't change mid-session.
+    // For 1200+ concurrent participants this 5x reduction is essential to avoid
+    // backend rate limits.
+    const intervalMs = screen === "admin" ? 4000 : 20000;
+    const interval = setInterval(loadQs, intervalMs);
     return () => clearInterval(interval);
-  }, []);
+  }, [screen]);
 
   // ── Sync questions to DB whenever admin changes them ──
   const syncQuestions = async (qs) => {
