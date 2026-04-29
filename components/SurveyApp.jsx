@@ -2374,8 +2374,43 @@ ${block}`;
                                 background:customOpen.has(q.id)?LG:"#fff",color:DG,flexShrink:0,opacity:loadingCustom===q.id?.6:1}}>
                               {loadingCustom===q.id?"⏳":"⚡ Custom"}
                             </button>
+                          <button onClick={()=>toggleInstrExpand(q)}
+                              title={q.analysisInstruction ? "Edit the saved instruction that guides Summarize" : "Save a permanent instruction that guides Summarize"}
+                              style={{padding:"9px 12px",borderRadius:"9px",fontSize:"12px",fontWeight:"700",
+                                cursor:"pointer",border:`2px solid ${q.analysisInstruction?G:BD}`,
+                                background:expandedInstr.has(q.id)?LG:"#fff",color:DG,flexShrink:0}}>
+                              🧠 Default {q.analysisInstruction ? "✓" : ""}
+                            </button>
                           </div>
                         </div>
+                        {/* Default (saved) analysis instruction editor */}
+                        {expandedInstr.has(q.id) && (
+                          <div style={{marginTop:"12px",padding:"14px",background:"#f4faf6",borderRadius:"10px",border:`1px solid ${G}`}}>
+                            <div style={{fontSize:"10px",fontWeight:"700",color:DG,marginBottom:"6px",letterSpacing:"1.5px",textTransform:"uppercase"}}>
+                              🧠 Default analysis instruction (saved)
+                            </div>
+                            <p style={{fontSize:"11px",color:"#7aaa88",margin:"0 0 10px",lineHeight:"1.5"}}>
+                              When you click <strong>Summarize</strong>, the AI will follow this instruction. Saved permanently. Leave empty to use the generic strategic analysis.
+                            </p>
+                            <textarea
+                              value={instrDraft[q.id] ?? ""}
+                              onChange={e=>setInstrDraft(d=>({...d, [q.id]: e.target.value}))}
+                              rows={3}
+                              placeholder="e.g., Cluster the questions by topic. Show the top 10 most repeated, with counts for each."
+                              style={{width:"100%",padding:"10px",border:`1px solid ${BD}`,borderRadius:"8px",
+                                fontSize:"13px",resize:"vertical",outline:"none",lineHeight:"1.5",fontFamily:"inherit",boxSizing:"border-box"}}
+                            />
+                            <div style={{display:"flex",gap:"6px",marginTop:"10px"}}>
+                              <SmallBtn onClick={()=>saveInstr(q.id)} color="green">💾 Save</SmallBtn>
+                              <SmallBtn onClick={()=>toggleInstrExpand(q)} color="white">Cancel</SmallBtn>
+                              {q.analysisInstruction && (
+                                <SmallBtn onClick={()=>{ setInstrDraft(d=>({...d, [q.id]: ""})); saveInstr(q.id); }} color="white">
+                                  Clear
+                                </SmallBtn>
+                              )}
+                            </div>
+                          </div>
+                        )}
                         {/* Ad-hoc custom analysis editor */}
                         {customOpen.has(q.id) && (
                           <div style={{marginTop:"12px",padding:"14px",background:LG,borderRadius:"10px",border:`1px solid ${BD}`}}>
@@ -2503,46 +2538,6 @@ ${block}`;
                                 <span key={j} style={{marginRight:"8px"}}>{s?.slice(0,20)}…</span>
                               ))}
                             </p>
-                            {/* Custom analysis instruction toggle */}
-                            <div style={{marginTop:"8px"}}>
-                              <button onClick={()=>toggleInstrExpand(q)}
-                                style={{background:"transparent",border:"none",padding:0,cursor:"pointer",
-                                  fontSize:"11px",color:q.analysisInstruction?G:"#7aaa88",fontWeight:q.analysisInstruction?"700":"500",
-                                  textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:"3px"}}>
-                                {q.analysisInstruction
-                                  ? `🧠 Custom analysis ✓  ${expandedInstr.has(q.id) ? "(hide)" : "(view)"}`
-                                  : `🧠 Add custom analysis instruction`}
-                              </button>
-                            </div>
-                            {/* Instruction editor */}
-                            {expandedInstr.has(q.id) && (
-                              <div style={{marginTop:"10px",padding:"12px",background:LG,borderRadius:"8px",border:`1px solid ${BD}`}}>
-                                <div style={{fontSize:"10px",fontWeight:"600",color:DG,marginBottom:"6px",letterSpacing:"1px",textTransform:"uppercase"}}>
-                                  Custom analysis instruction (optional)
-                                </div>
-                                <p style={{fontSize:"11px",color:"#7aaa88",margin:"0 0 8px",lineHeight:"1.5"}}>
-                                  When you click "Summarize" on this question, the AI will follow this instruction instead of the generic analysis. Example: "List the top 10 most repeated questions, with a count of how many people asked each."
-                                </p>
-                                <textarea
-                                  value={instrDraft[q.id] ?? ""}
-                                  onChange={e=>setInstrDraft(d=>({...d, [q.id]: e.target.value}))}
-                                  rows={3}
-                                  placeholder="Leave empty to use the default strategic analysis…"
-                                  style={{width:"100%",padding:"8px",border:`1px solid ${BD}`,borderRadius:"6px",
-                                    fontSize:"12px",resize:"vertical",outline:"none",lineHeight:"1.5",fontFamily:"inherit",
-                                    boxSizing:"border-box"}}
-                                />
-                                <div style={{display:"flex",gap:"6px",marginTop:"8px"}}>
-                                  <SmallBtn onClick={()=>saveInstr(q.id)} color="green">💾 Save</SmallBtn>
-                                  <SmallBtn onClick={()=>toggleInstrExpand(q)} color="white">Cancel</SmallBtn>
-                                  {q.analysisInstruction && (
-                                    <SmallBtn onClick={()=>{ setInstrDraft(d=>({...d, [q.id]: ""})); saveInstr(q.id); }} color="white">
-                                      Clear
-                                    </SmallBtn>
-                                  )}
-                                </div>
-                              </div>
-                            )}
                           </div>
                         )}
                       </div>
