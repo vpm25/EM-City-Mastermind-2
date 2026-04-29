@@ -10,61 +10,36 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     const { data, error } = await supabase
       .from("survey_questions")
-      .select("*")
+      .select("id, en, translations, active, sort_order")
       .order("sort_order", { ascending: true });
     if (error) return res.status(500).json({ error: error.message });
-
-    // Map DB column "id_lang" back to the JS field "idLang" the frontend expects
-    const mapped = (data || []).map(r => ({
-      id: r.id,
-      en: r.en,
-      zh: r.zh,
-      ja: r.ja,
-      ko: r.ko,
-      th: r.th,
-      vi: r.vi,
-      idLang: r.id_lang, // ← frontend uses idLang for Indonesian
-      fil: r.fil,
-      active: r.active,
-      sort_order: r.sort_order,
-    }));
-    return res.status(200).json(mapped);
+    return res.status(200).json(data || []);
   }
 
   // ── POST: save the full set of questions ──────────────────────
-  // Strategy: UPSERT existing rows by id, then delete any rows that
-  // are no longer in the payload. This preserves question IDs across
-  // edits, which keeps survey_responses.question_id valid forever.
+  // Strategy: UPSERT existing rows by id, then delete rows no longer present.
+  // This preserves question IDs across edits, which keeps survey_responses.question_id valid forever.
   if (req.method === "POST") {
     const { questions } = req.body;
     if (!questions || !Array.isArray(questions)) {
       return res.status(400).json({ error: "Invalid questions" });
     }
 
-    // Split incoming rows: existing (numeric id) vs new (no id or non-numeric placeholder)
     const incomingIds = [];
     const toUpsert = [];
     const toInsert = [];
 
     questions.forEach((q, i) => {
       const row = {
-        en:       q.en || "",
-        zh:       q.zh     || q.en || "",
-        ja:       q.ja     || q.en || "",
-        ko:       q.ko     || q.en || "",
-        th:       q.th     || q.en || "",
-        vi:       q.vi     || q.en || "",
-        id_lang:  q.idLang || q.en || "",  // ← read from idLang (NOT q.id!)
-        fil:      q.fil    || q.en || "",
-        active:   q.active !== false,
+        en: q.en || "",
+        translations: q.translations || {}, // JSONB — stores all language translations
+        active: q.active !== false,
         sort_order: i,
       };
 
-      // A real DB id is a number (Postgres SERIAL). Anything else (including the
-      // Date.now() placeholders the frontend uses for new questions) is treated as
-      // a brand-new row and gets a fresh DB-assigned id.
-      if (typeof q.id === "number" && q.id < 2147483647 && q.id > 0 && q.id < 1000000) {
-        // Looks like a real DB id (small integer, not Date.now())
+      // A real DB id is a small integer (Postgres SERIAL). Anything else
+      // (Date.now() placeholders, etc.) means it's a new row needing a fresh id.
+      if (typeof q.id === "number" && q.id > 0 && q.id < 1000000) {
         row.id = q.id;
         incomingIds.push(q.id);
         toUpsert.push(row);
@@ -93,8 +68,7 @@ export default async function handler(req, res) {
         inserted = insData || [];
       }
 
-      // 3. Delete rows that are no longer present in the incoming list
-      //    (admin removed them in the UI)
+      // 3. Delete rows that were removed in the UI
       const keepIds = [...incomingIds, ...inserted.map(r => r.id)];
       if (keepIds.length) {
         const { error: delErr } = await supabase
@@ -103,7 +77,6 @@ export default async function handler(req, res) {
           .not("id", "in", `(${keepIds.join(",")})`);
         if (delErr) throw delErr;
       } else {
-        // Nothing to keep → wipe the table
         const { error: delErr } = await supabase
           .from("survey_questions")
           .delete()
@@ -114,16 +87,10 @@ export default async function handler(req, res) {
       // Return the latest state
       const { data, error } = await supabase
         .from("survey_questions")
-        .select("*")
+        .select("id, en, translations, active, sort_order")
         .order("sort_order", { ascending: true });
       if (error) throw error;
-
-      const mapped = (data || []).map(r => ({
-        id: r.id, en: r.en, zh: r.zh, ja: r.ja, ko: r.ko,
-        th: r.th, vi: r.vi, idLang: r.id_lang, fil: r.fil,
-        active: r.active, sort_order: r.sort_order,
-      }));
-      return res.status(200).json(mapped);
+      return res.status(200).json(data || []);
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
