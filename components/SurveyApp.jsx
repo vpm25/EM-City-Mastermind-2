@@ -301,7 +301,7 @@ export default function App() {
 
   const translateQuestion = async (englishText) => {
     setTranslating(true); setTransErr("");
-    const prompt = "Translate this question into 7 languages. Reply ONLY in this format, one per line:\nZH: translation\nJA: translation\nKO: translation\nTH: translation\nVI: translation\nID: translation\nFIL: translation\n\nQuestion: " + englishText;
+    const prompt = "Translate this question accurately into 7 languages. If you are not certain of a translation, return the English text unchanged for that language rather than guessing. Do not invent words or paraphrase loosely.\n\nReply ONLY in this format, one per line:\nZH: translation\nJA: translation\nKO: translation\nTH: translation\nVI: translation\nID: translation\nFIL: translation\n\nQuestion: " + englishText;
     try {
       const response = await callAI(prompt, 1200);
       const get = (code) => {
@@ -731,7 +731,7 @@ export default function App() {
     const key = q.id + "_" + langCode;
     setRetranslating(prev => ({ ...prev, [key]: true }));
     try {
-      const prompt = `Translate the following question into ${name}. Reply with ONLY the translated text, no labels, no quotes, no explanations.\n\nQuestion: ${q.en}`;
+      const prompt = `Translate the following question accurately into ${name}. Reply with ONLY the translated text — no labels, no quotes, no explanations. If you are not confident in the translation, return the English text unchanged rather than guessing.\n\nQuestion: ${q.en}`;
       const response = await callAI(prompt, 400);
       const translated = String(response || "").trim().replace(/^["']|["']$/g, "");
       if (translated) {
@@ -823,37 +823,43 @@ export default function App() {
 
 You are now being asked to analyze the responses to ONE specific survey question and produce a tight set of strategic insights.
 
-CRITICAL RULES:
-- Every claim must come directly from the responses below.
-- DO NOT invent numbers, demographics, or details that are not explicitly in the data.
-- Your credibility depends on every observation being grounded in actual responses.
+═══════════════════════════════════════════════════════
+GROUNDING RULES — ABSOLUTE
+═══════════════════════════════════════════════════════
+- Every observation MUST be derivable from the responses below. No exceptions.
+- DO NOT invent numbers, percentages, segments, demographics, tenure groups, departments, or any detail not explicitly present in the data.
+- DO NOT extrapolate beyond what the responses say. If a response says "leadership", you cannot claim it was about "executive leadership development programs" — only say what is actually there.
+- Quantitative claims (counts, percentages) must reflect the ACTUAL count in the data. When you CAN count something precisely (e.g., "leadership" appears in 4 out of 7 responses), state the exact number. When you CANNOT count precisely (themes that overlap, fuzzy boundaries, vague references), describe it qualitatively ("most", "a few", "one participant"). Never use approximate or estimated numbers — be exact or be qualitative.
+- If the data is thin or the patterns ambiguous, say so honestly. Hedged truth beats confident fiction.
 
 QUESTION:
 "${q.en}"
 
-NUMBER OF RESPONSES: ${nR}
+NUMBER OF RESPONSES TO THIS QUESTION: ${nR}
 
 YOUR TASK:
 Write 3-5 strategic bullet points. Each bullet should help leadership make a decision — answer the question "so what?". Focus on:
-- Patterns, frequency, and what stands out across the responses
-- What the data implies for the organization (not just what was said)
-- Specific words or phrases from the actual responses where they support a point
+- Patterns or contrasts you can verify by looking at the responses
+- What the responses imply for the organization
+- Specific words or phrases drawn from the actual responses
 
-EXAMPLES OF GOOD BULLETS (each tells leadership something they can act on):
-  • Leadership development was the single most-mentioned theme, cited in ${Math.round(nR*0.6)} of ${nR} responses — strongly signaling where investment will resonate
-  • Concerns about clarity in development pathways surfaced in a small but consistent minority — a quiet signal worth attention before it becomes louder
-  • Three dominant themes emerged: mentorship, cross-functional work, and stretch assignments — each pointing to a different lever leadership can pull
+EXAMPLES (note that the patterns named would only be claimed if they actually exist in the data — these are illustrations of STYLE, not templates to fill in):
+  • One theme dominates the responses — leadership development — surfacing in roughly two-thirds of replies. The signal is strong enough to act on.
+  • A small but consistent minority raised concerns about clarity in development pathways. Worth attention before it grows louder.
+  • Three distinct themes emerged in the responses — each pointing to a different lever leadership can pull.
 
-DO NOT produce trivial observations like:
-  ✗ "Responses in Japanese were shorter than responses in English" (linguistic, not strategic)
-  ✗ "Most participants gave a one-word answer" (about format, not content)
-  ✗ "Participants varied in their responses" (vacuous)
+DO NOT produce:
+  ✗ Trivia: "Responses in Japanese were shorter than English" (linguistic, not strategic)
+  ✗ Format observations: "Most participants gave a one-word answer" (about format, not content)
+  ✗ Vacuous summaries: "Participants varied in their responses"
+  ✗ Fabricated segmentations: "Participants in their first year said X, those past year three said Y" — UNLESS the data actually distinguishes those groups
+  ✗ Invented percentages: do not write "64% said X" unless you literally counted X in the data
 
 STYLE:
 - Plain English. No jargon.
 - Start each bullet with "•".
-- Be confident where the data supports it. Be hedged where it doesn't.
-- If only ${nR} response${nR===1?"":"s"} ${nR===1?"was":"were"} collected, acknowledge that the sample is small if it materially limits the conclusions you can draw.
+- Be confident only where the data supports it. Hedge where it doesn't.
+- With ${nR} response${nR===1?"":"s"}, acknowledge limits openly if the sample is too small to support strong conclusions.
 
 RESPONSES:
 ${ans}`;
@@ -1001,85 +1007,122 @@ ${ans}`;
 
 You are now producing an EXECUTIVE DASHBOARD ONE-PAGER from a survey of ${nP} participant${nP===1?"":"s"} who answered ${nQ} question${nQ===1?"":"s"} (${nResp} total responses).
 
-CRITICAL RULES:
-- Every claim grounded in the data below. No invented numbers, names, percentages, or themes.
-- Be PUNCHY. Short sentences. Active voice. Quantitative whenever possible.
-- Each strength/opportunity card must include at least one data point or specific quote from a response.
+═══════════════════════════════════════════════════════
+GROUNDING RULES — ABSOLUTE
+═══════════════════════════════════════════════════════
+- Every claim, quote, theme, percentage, count, or segmentation MUST be derivable from the responses below. No exceptions.
+- DO NOT invent: numbers, percentages, demographics, cohort sizes, tenure groups, departments, regions, comparisons between subgroups, or any detail that is not explicitly in the data.
+- Quantitative claims must reflect the ACTUAL count in the data. When you CAN count something precisely (e.g., "leadership" appears in 4 out of 7 responses), state the exact number. When you CANNOT count precisely (themes that overlap, fuzzy boundaries, vague references), describe it qualitatively ("most", "a few", "one participant"). Never use approximate or estimated numbers — be exact or be qualitative.
+- DO NOT extrapolate. If a response says "leadership", you cannot claim it referred to "first-time leadership roles" or "executive development programs" unless those exact phrases are in the responses.
+- Every direct quote must be a near-verbatim phrase from the actual responses. Do not paraphrase quotes.
+- If the data is thin or a pattern is ambiguous, say so honestly. A hedged truth is more credible than a confident fabrication.
+- Be PUNCHY. Short sentences. Active voice.
 - Use the language of decisions, not descriptions. Say "rethink", "double down", "stop", not "consider exploring".
-- Where the data is thin, name it honestly in the "what we did NOT learn" section instead of inflating findings.
+- Output language: ENGLISH.
 
-OUTPUT FORMAT — return ONLY valid JSON, no commentary, no backticks:
+═══════════════════════════════════════════════════════
+STRUCTURE — DERIVE THE SECTIONS FROM THE DATA
+═══════════════════════════════════════════════════════
+This is the most important rule of this brief: section titles must come from THE DATA, not from a template.
+
+🚫 STRICTLY FORBIDDEN section titles (these are lazy and will be rejected):
+  • "Strengths" / "Fortalezas"
+  • "Opportunities" / "Oportunidades"
+  • "Weaknesses"
+  • "Blind spots" / "Puntos ciegos"
+  • "Where to act" / "Dónde actuar"
+  • "Recommendations"
+  • "Key findings"
+  • "Action items"
+  • "Pros and cons"
+  • Anything that sounds like a SWOT, retrospective, or generic consulting framework
+
+If your section title would fit equally well on ANY survey, it's the wrong title. It must be specific to THIS data.
+
+✅ GOOD section titles earn their place by being specific to what the data actually shows. Real examples (each could only describe a particular dataset):
+  • "The 35-vs-25 Divide"
+  • "Leadership Casts a Long Shadow"
+  • "What Two People Cannot Tell Us"
+  • "AI Surfaces — Without Being Asked"
+  • "When 'Good' and 'Bad' Both Mean Yes"
+  • "The Quote That Stops You"
+  • "Where the Energy Lives"
+  • "Signals From the Margins"
+  • "What's Missing From Every Answer"
+  • "The Word No One Used"
+
+Think like a journalist writing a magazine headline based on what they actually read, not a consultant filling a template. The reader should be intrigued by the section title alone — and every word of it should be defensible by pointing to the responses below.
+
+PROCESS for choosing your sections:
+1. Read all responses carefully and look for genuine patterns, contrasts, or signals.
+2. Group what you find into 3-6 themes that are SPECIFIC to this dataset.
+3. Name each theme with words that describe what's actually there — not generic consulting labels.
+4. If your title would fit on any other survey's report, rename it until it couldn't.
+
+═══════════════════════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════════════════════
+Return ONLY valid JSON (no markdown, no backticks, no commentary). Use this schema:
 
 {
-  "title": "Short evocative title — should hint at the core finding (max 8 words)",
-  "subtitle": "One-line context about what this dashboard covers (e.g., 'Q4 2026 Asia Pacific Mastermind Survey · 30 participants · 5 questions')",
-  "executiveSummary": "ONE paragraph (50-80 words) capturing the overall picture. This is what a leader will remember if they read nothing else. Lead with the headline, then the tension, then the call to action.",
-  "strengths": [
+  "title": "Short, evocative title that hints at the core finding (max 8 words). NOT generic.",
+  "metadata": "${nP} participant${nP===1?"":"s"} · ${nQ} question${nQ===1?"":"s"} · [add timeframe or event context if helpful]",
+  "executiveSummary": "ONE paragraph (50-80 words) capturing the overall picture. Lead with the headline finding, then the tension or nuance, then the implication. This is what a leader will remember if they read nothing else.",
+  "sections": [
     {
-      "title": "Short title (3-6 words)",
-      "body": "1-2 punchy sentences with a SPECIFIC data point or pattern from the responses.",
-      "quote": "A short verbatim or near-verbatim quote from a participant that supports this card. Keep it under 15 words. Omit field if no quote fits."
+      "icon": "single emoji that matches the section's tone (✅ ⚠️ 👁 🎯 💡 📊 🔍 🚦 🌱 🪞 🧭 🌊 etc.)",
+      "title": "Section title — drawn from what the data actually shows, NOT from a template",
+      "cards": [
+        {
+          "title": "Card heading — a specific finding (3-7 words)",
+          "body": "1-2 sentences with data + so-what. Be concrete. Use specific numbers or phrases from the data.",
+          "quote": "Optional: a memorable phrase from a participant. Under 15 words. Omit the field entirely if no quote earns inclusion."
+        }
+      ]
     }
-    // 2-4 strength cards total
   ],
-  "opportunities": [
-    {
-      "title": "Short title — frame as a tension or gap",
-      "body": "1-2 punchy sentences naming the issue with a specific signal from the data.",
-      "quote": "Verbatim or near-verbatim from responses, under 15 words. Omit if none."
-    }
-    // 2-4 opportunity cards total
-  ],
-  "blindspots": [
-    "Each blindspot is ONE sentence (max 25 words) naming something the data did NOT cover but that leadership should be aware of given the topic. These are honest gaps in the survey itself."
-    // 2-3 blindspots total
-  ],
-  "actions": [
-    {
-      "label": "Action verb + noun (e.g., 'Redesign', 'Stop', 'Double down')",
-      "body": "1 sentence describing the concrete action and why it matters. Should be specific enough to assign to a person."
-    }
-    // 3-5 actions total, prioritized
-  ],
-  "convergence": {
-    "voice1": "The key sentiment from participants in their own words (under 10 words, in quotes)",
-    "voice2": "The strategic tension this surfaces (under 10 words)",
-    "voice3": "The decision this forces (under 10 words)"
+  "tension": {
+    "label": "2-3 word label for the tension (optional)",
+    "left": "What one side / group / data signal said (5-10 words)",
+    "right": "What the other side / group / data signal said (5-10 words)"
   }
 }
 
-EXAMPLES OF GOOD CARDS (notice the punchiness, data, and clarity):
+CONSTRAINTS:
+- 3 to 6 sections total. Quality over quantity. If a section doesn't have at least 2 strong cards, cut it.
+- 2 to 4 cards per section.
+- "tension" field is OPTIONAL — include it ONLY if there is a genuine, clear tension or contrast in the data. If there's no real tension, OMIT THE ENTIRE "tension" FIELD. Don't fabricate one.
+- Total content ~400-600 words across all cards. Fits on one printed page.
 
-Strength card:
+EXAMPLES OF STYLE (these are illustrations of HOW a card reads — NOT templates to fill in. Only write claims that you can defend by pointing to the actual responses below):
+
 {
   "title": "Leadership development resonates",
-  "body": "Cited in 18 of 30 responses (60%) — the single most-mentioned theme. Strong signal that investment here will land.",
+  "body": "Surfaced as the single most-mentioned theme across the responses — strong signal that investment here will land.",
   "quote": "Most valuable was learning to lead without authority"
 }
 
-Opportunity card:
 {
   "title": "Recruitment without retention",
-  "body": "Participants describe pulling in new members but losing them within 90 days. Pattern surfaced 8 times. Pipeline is leaky, not empty.",
+  "body": "Participants describe pulling in new members but losing them quickly. Pipeline is leaky, not empty.",
   "quote": "We recruit but it's not easy to retain them"
 }
 
-Action card:
-{
-  "label": "Redesign the 90-day journey",
-  "body": "Build a structured first-90-days experience for new members. Today's onboarding is informal; participants want clarity on what 'good' looks like."
-}
+Critical: do NOT copy these example numbers or example quotes. They are placeholders showing tone. Your numbers and quotes must come from the actual data below.
 
-DO NOT produce vague or trivial content like:
+DO NOT produce content like:
   ✗ "Participants gave varied responses" (vacuous)
   ✗ "Communication is important" (banal)
-  ✗ "More data is needed" (cop-out — say what would help)
+  ✗ "More data is needed" (cop-out — say what specifically would help)
+  ✗ "Responses in Japanese were shorter than English" (linguistic, not strategic)
+  ✗ Fabricated subgroups: "First-year participants said X, senior ones said Y" — UNLESS the data actually distinguishes them
+  ✗ Invented percentages: "60% said X" — UNLESS you literally counted X and the percentage is accurate
 
 ACTUAL SURVEY RESPONSES:
 ${block}`;
 
     try {
-      const raw = await callAI(prompt, 3000);
+      const raw = await callAI(prompt, 4000);
       const m = raw.match(/\{[\s\S]*\}/);
       if (!m) throw new Error("No JSON in response");
       const parsed = JSON.parse(m[0]);
@@ -1095,44 +1138,24 @@ ${block}`;
     if (!op || op.error) return "";
     const lines = [];
     if (op.title) lines.push(op.title.toUpperCase(), "");
-    if (op.subtitle) lines.push(op.subtitle, "");
+    if (op.metadata) lines.push(op.metadata, "");
     if (op.executiveSummary) lines.push(op.executiveSummary, "");
-    if (op.strengths?.length) {
-      lines.push("STRENGTHS", "─".repeat(40));
-      op.strengths.forEach(s => {
-        lines.push(`• ${s.title}`);
-        if (s.body) lines.push(`  ${s.body}`);
-        if (s.quote) lines.push(`  "${s.quote}"`);
+    (op.sections || []).forEach(s => {
+      lines.push("");
+      lines.push(`${s.icon || ""} ${(s.title || "").toUpperCase()}`.trim());
+      lines.push("─".repeat(40));
+      (s.cards || []).forEach(c => {
+        lines.push(`• ${c.title}`);
+        if (c.body) lines.push(`  ${c.body}`);
+        if (c.quote) lines.push(`  "${c.quote}"`);
         lines.push("");
       });
-    }
-    if (op.opportunities?.length) {
-      lines.push("OPPORTUNITIES", "─".repeat(40));
-      op.opportunities.forEach(o => {
-        lines.push(`• ${o.title}`);
-        if (o.body) lines.push(`  ${o.body}`);
-        if (o.quote) lines.push(`  "${o.quote}"`);
-        lines.push("");
-      });
-    }
-    if (op.blindspots?.length) {
-      lines.push("BLIND SPOTS", "─".repeat(40));
-      op.blindspots.forEach(b => lines.push(`• ${b}`));
+    });
+    if (op.tension && op.tension.left && op.tension.right) {
       lines.push("");
-    }
-    if (op.actions?.length) {
-      lines.push("WHERE TO ACT", "─".repeat(40));
-      op.actions.forEach((a, i) => {
-        lines.push(`${i+1}. ${a.label}`);
-        if (a.body) lines.push(`   ${a.body}`);
-      });
-      lines.push("");
-    }
-    if (op.convergence) {
-      lines.push("THE CONVERGENCE", "─".repeat(40));
-      if (op.convergence.voice1) lines.push(`Voice:    ${op.convergence.voice1}`);
-      if (op.convergence.voice2) lines.push(`Tension:  ${op.convergence.voice2}`);
-      if (op.convergence.voice3) lines.push(`Decision: ${op.convergence.voice3}`);
+      lines.push(`TENSION${op.tension.label ? ` — ${op.tension.label}` : ""}`);
+      lines.push(`  ◀ ${op.tension.left}`);
+      lines.push(`  ▶ ${op.tension.right}`);
     }
     return lines.join("\n");
   };
@@ -1288,87 +1311,46 @@ ${block}`;
         y += 14;
       };
 
-      if (op.strengths?.length) {
-        sectionHeader("Strengths", "✓", G_MID);
-        const items = op.strengths;
+      // Free-form sections — iterate whatever the AI produced
+      (op.sections || []).forEach(section => {
+        const items = section.cards || [];
+        if (!items.length) return;
+        sectionHeader(section.title || "", section.icon || "", G_MID);
         for (let i = 0; i < items.length; i += 2) {
           const yStart = y;
           const yLeft  = drawCard(M, yStart, colW, items[i], G_MID);
           const yRight = items[i+1] ? drawCard(M + colW + colGap, yStart, colW, items[i+1], G_MID) : yStart;
           y = Math.max(yLeft, yRight) + 8;
+          if (y > pageH - M - 60) { doc.addPage(); y = M; }
         }
-      }
+      });
 
-      if (op.opportunities?.length) {
-        sectionHeader("Opportunities", "◐", ORANGE);
-        const items = op.opportunities;
-        for (let i = 0; i < items.length; i += 2) {
-          const yStart = y;
-          const yLeft  = drawCard(M, yStart, colW, items[i], ORANGE);
-          const yRight = items[i+1] ? drawCard(M + colW + colGap, yStart, colW, items[i+1], ORANGE) : yStart;
-          y = Math.max(yLeft, yRight) + 8;
-        }
-      }
-
-      if (op.blindspots?.length) {
-        sectionHeader("Blind spots", "!", RED);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(9);
-        doc.setTextColor(...TXT);
-        op.blindspots.forEach(b => {
-          const lines = doc.splitTextToSize("•  " + b, pageW - M*2 - 4);
-          lines.forEach(l => { doc.text(l, M + 4, y); y += 12; });
-        });
-        y += 4;
-      }
-
-      if (op.actions?.length) {
-        sectionHeader("Where to act", "→", G_DARK);
-        op.actions.forEach((a, i) => {
-          doc.setFillColor(...G_DARK);
-          doc.circle(M + 8, y - 2, 7, "F");
-          doc.setTextColor(255, 255, 255);
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(8);
-          doc.text(String(i+1), M + 8, y + 1, { align: "center" });
-
-          doc.setTextColor(...G_DARK);
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(10);
-          doc.text(a.label || "", M + 22, y);
-          y += 12;
-          if (a.body) {
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(9);
-            doc.setTextColor(...TXT);
-            const lines = doc.splitTextToSize(a.body, pageW - M*2 - 22);
-            lines.forEach(l => { doc.text(l, M + 22, y); y += 11; });
-          }
-          y += 4;
-        });
-      }
-
-      if (op.convergence) {
+      // Optional tension footer
+      if (op.tension && op.tension.left && op.tension.right) {
         y += 6;
-        const footH = 50;
+        const footH = 56;
         if (y + footH > pageH - M) { doc.addPage(); y = M; }
         doc.setFillColor(...G_DARK);
         doc.roundedRect(M, y, pageW - M*2, footH, 4, 4, "F");
-        const colW3 = (pageW - M*2) / 3;
-        const labels = ["VOICE", "TENSION", "DECISION"];
-        const values = [op.convergence.voice1, op.convergence.voice2, op.convergence.voice3];
-        for (let i = 0; i < 3; i++) {
-          const cx = M + colW3 * i + colW3/2;
+        if (op.tension.label) {
           doc.setTextColor(180, 220, 195);
           doc.setFont("helvetica", "bold");
           doc.setFontSize(7);
-          doc.text(labels[i], cx, y + 14, { align: "center" });
-          doc.setTextColor(255, 255, 255);
-          doc.setFont("helvetica", "italic");
-          doc.setFontSize(9);
-          const vLines = doc.splitTextToSize(values[i] || "", colW3 - 16);
-          vLines.forEach((l, j) => doc.text(l, cx, y + 28 + j*11, { align: "center" }));
+          doc.text(op.tension.label.toUpperCase(), M + (pageW - M*2)/2, y + 12, { align: "center" });
         }
+        const halfW = (pageW - M*2) / 2;
+        doc.setTextColor(255, 255, 255);
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(9);
+        const leftLines = doc.splitTextToSize(`"${op.tension.left}"`, halfW - 24);
+        const rightLines = doc.splitTextToSize(`"${op.tension.right}"`, halfW - 24);
+        leftLines.forEach((l, j)  => doc.text(l, M + halfW/2, y + 30 + j*11, { align: "center" }));
+        rightLines.forEach((l, j) => doc.text(l, M + halfW + halfW/2, y + 30 + j*11, { align: "center" }));
+        // × divider
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(14);
+        doc.setTextColor(180, 220, 195);
+        doc.text("×", M + halfW, y + 36, { align: "center" });
         y += footH + 4;
       }
 
@@ -1486,67 +1468,52 @@ ${block}`;
         });
       };
 
-      if (op.strengths?.length) {
-        children.push(sectionHeader("Strengths", G_MID));
-        children.push(cardGrid(op.strengths, G_MID));
-      }
-      if (op.opportunities?.length) {
-        children.push(sectionHeader("Opportunities", ORANGE));
-        children.push(cardGrid(op.opportunities, ORANGE));
-      }
-      if (op.blindspots?.length) {
-        children.push(sectionHeader("Blind spots", RED));
-        op.blindspots.forEach(b => {
-          children.push(new Paragraph({
-            bullet: { level: 0 },
-            spacing: { after: 80 },
-            children: [new TextRun({ text: b, size: 20, color: TXT })],
-          }));
-        });
-      }
-      if (op.actions?.length) {
-        children.push(sectionHeader("Where to act", G_DARK));
-        op.actions.forEach((a, i) => {
-          children.push(new Paragraph({
-            spacing: { before: 100, after: 40 },
-            children: [
-              new TextRun({ text: `${i+1}.  `, bold: true, size: 22, color: G_DARK }),
-              new TextRun({ text: a.label || "", bold: true, size: 22, color: G_DARK }),
-            ],
-          }));
-          if (a.body) children.push(new Paragraph({
-            indent: { left: 360 },
-            spacing: { after: 100 },
-            children: [new TextRun({ text: a.body, size: 20, color: TXT })],
-          }));
-        });
-      }
-      if (op.convergence) {
+      // Free-form sections — iterate whatever the AI produced
+      (op.sections || []).forEach(section => {
+        const items = section.cards || [];
+        if (!items.length) return;
+        children.push(sectionHeader(`${section.icon || ""}  ${section.title || ""}`.trim(), G_MID));
+        children.push(cardGrid(items, G_MID));
+      });
+
+      // Optional tension footer
+      if (op.tension && op.tension.left && op.tension.right) {
         children.push(new Paragraph({ spacing: { before: 240, after: 0 }, children: [] }));
+        if (op.tension.label) {
+          children.push(new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 80 },
+            children: [new TextRun({
+              text: op.tension.label.toUpperCase(),
+              bold: true, size: 18, color: G_MID, characterSpacing: 40,
+            })],
+          }));
+        }
+        const tensionCell = (text) => new TableCell({
+          shading: { type: ShadingType.SOLID, color: G_DARK, fill: G_DARK },
+          margins: { top: 200, bottom: 200, left: 200, right: 200 },
+          borders: { top:{style:BorderStyle.NONE},bottom:{style:BorderStyle.NONE},left:{style:BorderStyle.NONE},right:{style:BorderStyle.NONE}},
+          children: [new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ text: `"${text}"`, italics: true, size: 20, color: "FFFFFF" })],
+          })],
+        });
+        const xCell = new TableCell({
+          shading: { type: ShadingType.SOLID, color: G_DARK, fill: G_DARK },
+          margins: { top: 200, bottom: 200, left: 100, right: 100 },
+          borders: { top:{style:BorderStyle.NONE},bottom:{style:BorderStyle.NONE},left:{style:BorderStyle.NONE},right:{style:BorderStyle.NONE}},
+          children: [new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ text: "×", bold: true, size: 28, color: "B4DCC3" })],
+          })],
+        });
         children.push(new Table({
           width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [new TableRow({
-            children: [
-              { label: "VOICE",    value: op.convergence.voice1 },
-              { label: "TENSION",  value: op.convergence.voice2 },
-              { label: "DECISION", value: op.convergence.voice3 },
-            ].map(({ label, value }) => new TableCell({
-              shading: { type: ShadingType.SOLID, color: G_DARK, fill: G_DARK },
-              margins: { top: 200, bottom: 200, left: 160, right: 160 },
-              borders: { top:{style:BorderStyle.NONE},bottom:{style:BorderStyle.NONE},left:{style:BorderStyle.NONE},right:{style:BorderStyle.NONE}},
-              children: [
-                new Paragraph({
-                  alignment: AlignmentType.CENTER,
-                  spacing: { after: 100 },
-                  children: [new TextRun({ text: label, bold: true, size: 14, color: "B4DCC3", characterSpacing: 30 })],
-                }),
-                new Paragraph({
-                  alignment: AlignmentType.CENTER,
-                  children: [new TextRun({ text: value || "", italics: true, size: 18, color: "FFFFFF" })],
-                }),
-              ],
-            })),
-          })],
+          rows: [new TableRow({ children: [
+            tensionCell(op.tension.left),
+            xCell,
+            tensionCell(op.tension.right),
+          ] })],
         }));
       }
 
@@ -1595,7 +1562,16 @@ ${block}`;
 
     const prompt = `You are a world-class strategic executive consultant with 20+ years of experience analyzing organizational surveys for Fortune 500 leadership teams. You specialize in turning raw qualitative feedback into board-ready strategic narratives that drive decisions.
 
-You are now being asked to create a presentation from REAL survey data. DO NOT invent or assume any numbers, demographics, cohort sizes, or details that are not explicitly in the data below. Your credibility depends on every claim being grounded in the actual responses provided.
+You are now being asked to create a presentation from REAL survey data.
+
+═══════════════════════════════════════════════════════
+GROUNDING RULES — ABSOLUTE
+═══════════════════════════════════════════════════════
+- Every claim, quote, theme, percentage, count, or segmentation MUST be derivable from the responses below.
+- DO NOT invent: numbers, percentages, demographics, cohort sizes, tenure groups, departments, regions, comparisons between subgroups, or any detail that is not explicitly in the data.
+- Quantitative claims must reflect actual counts. When you CAN count something precisely (e.g., "leadership" appears in 4 out of 7 responses), state the exact number. When you CANNOT count precisely (themes that overlap, fuzzy boundaries, vague references), describe it qualitatively ("most participants", "one respondent", "a few", "the majority"). Never use approximate or estimated numbers — be exact or be qualitative.
+- DO NOT extrapolate. If a response says "leadership", you cannot claim it referred to "first-time leadership roles" or "leadership development programs" unless those exact phrases are in the responses.
+- If the data does not support a strategic claim, do not make one. Hedged truth beats confident fiction. Acknowledging uncertainty is what makes the analysis trustworthy.
 
 DATA SUMMARY (use these exact numbers, do not change them):
 - ${nP} participant${nP===1?"":"s"} took part in the survey
@@ -1608,26 +1584,28 @@ REQUIRED STRUCTURE — generate EXACTLY ${expectedSlides} slide${expectedSlides=
 
 For each question, generate TWO DISTINCT slides. The two slides must NOT repeat each other:
 
-INSIGHTS slide = ANALYTICAL. Focus on patterns, frequency, distribution, and what stands out across the dataset. Examples of GOOD insight bullets (each tells leadership something they can act on):
-  • "Leadership development was the single most-mentioned theme, cited in 64% of responses"
-  • "Three dominant themes emerged: mentorship, cross-functional collaboration, and stretch assignments"
-  • "Participants in their first year cited 'finding their voice'; those past year three cited 'developing others' — a clear shift in growth needs by tenure"
-  • "Communication gaps were named most often by participants in cross-regional roles, suggesting a structural issue rather than an individual one"
-  • "While 88% described positive growth experiences, 12% raised concerns about lack of clarity in development pathways — a small but consistent signal worth attention"
+INSIGHTS slide = ANALYTICAL. Focus on patterns, frequency, distribution, and what stands out across the dataset.
 
-DO NOT produce trivial or non-actionable observations like:
-  ✗ "Responses in Japanese were shorter than responses in English" (linguistic, not strategic)
-  ✗ "Most participants gave a one-word answer" (about format, not content)
+EXAMPLES OF STYLE (these are illustrations of HOW to write — DO NOT borrow their content; only write claims that are actually in the data):
+  • One theme dominates the responses — only claim the theme if it actually does dominate
+  • A small but consistent minority raised concerns about X — only if X actually was raised
+  • Three distinct themes emerged — only if there genuinely are three
+
+DO NOT produce content like:
+  ✗ "Participants in their first year said X; those past year three said Y" — UNLESS the data actually distinguishes these groups (it usually does NOT)
+  ✗ "64% said X" — UNLESS you literally counted X and the percentage is accurate
+  ✗ "Cross-regional roles flagged Y" — UNLESS the data says who is in which role
+  ✗ "Responses in Japanese were shorter than English" (linguistic trivia, not strategic)
+  ✗ "Most participants gave a one-word answer" (format observation, not content)
   ✗ "Participants varied in their responses" (vacuous)
-  ✗ Counts of language distribution unless they reveal a meaningful pattern about the topic
 
 Insight bullets should help leadership make decisions. Each bullet should answer "so what?".
 
-SUMMARY slide = NARRATIVE. Synthesize what participants actually said in flowing, descriptive sentences. Tell the story of the responses. Examples of GOOD summary bullets:
-  • "Participants described a year defined by stretching beyond their comfort zones — taking on first-time leadership roles, leading large initiatives, and learning to delegate"
-  • "Many spoke about the value of mentorship relationships, both as mentees gaining direction and as mentors investing in newer team members"
-  • "There was a strong sentiment of growth through challenge: difficult projects, ambiguous problems, and unfamiliar regions surfaced repeatedly as turning points"
-Summary bullets are longer, qualitative, and read like an executive briefing.
+SUMMARY slide = NARRATIVE. Synthesize what participants actually said in flowing, descriptive sentences. Use specific words and phrases from the actual responses where possible.
+
+EXAMPLES OF STYLE (the form, not the content):
+  • A flowing sentence describing what participants spoke about, anchored in real phrases from their responses
+  • A second sentence drawing connections between what was said, without imposing meaning that isn't there
 
 The two slides answer different questions:
 - INSIGHTS answers: "What does the data show that we should act on?"
@@ -1637,11 +1615,10 @@ ${presQs.map((q,i)=>`${i*2+2}. "Q${i+1} INSIGHTS" slide for: "${q.en}"
 ${i*2+3}. "Q${i+1} SUMMARY" slide for: "${q.en}"`).join("\n")}
 
 RULES:
-- Every quote, theme, and insight MUST come directly from the responses below.
+- Every quote MUST be a near-verbatim phrase from the responses. Do not paraphrase quotes.
 - If only ${nP} participant${nP===1?"":"s"} answered, say "${nP}", not a made-up bigger number.
 - If a specific question received no answer from anyone, you can note that for that question — but do not generalise it to "no questions were answered".
-- Use specific words and phrases from the actual responses where possible.
-- 3-5 bullet points per slide. Each bullet should be a complete, specific thought.
+- 3-5 bullet points per slide. Each bullet must be defensible by pointing to specific responses.
 - Do NOT make INSIGHTS and SUMMARY slides repeat each other. They must offer different angles.
 
 Return ONLY valid JSON (no markdown, no backticks, no commentary):
