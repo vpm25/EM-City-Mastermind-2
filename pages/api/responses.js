@@ -16,19 +16,58 @@ export default async function handler(req, res) {
     return res.status(200).json(data);
   }
 
-  // ── POST: save a new response from a participant ──────────────
+  // ── POST: save responses from a participant ──────────────────
+  // Two modes:
+  //   A) Multi-question submit (preferred for events with form-style UX):
+  //      body = { lang, langName, flag, participant_token, items: [{question_id, question_text, answer}, ...] }
+  //      Inserts one row per item with the same participant_token.
+  //   B) Single-question (legacy, still supported):
+  //      body = { lang, langName, flag, answers, question_id, question_text, participant_token }
   if (req.method === "POST") {
     const {
       lang,
       langName,
       flag,
+      participant_token,
+      // Multi-question mode:
+      items,
+      // Legacy single-question mode:
       answers,
       question_id,
-      question_text, // ← snapshot of question wording when answered
-      participant_token,
+      question_text,
     } = req.body || {};
-    if (!lang || !Array.isArray(answers)) {
-      return res.status(400).json({ error: "Missing lang or answers" });
+
+    if (!lang) return res.status(400).json({ error: "Missing lang" });
+
+    // ── Mode A: multi-question (items array) ────────────────────
+    if (Array.isArray(items) && items.length > 0) {
+      const rows = items
+        .filter(it => it && (it.answer || "").toString().trim()) // skip empty answers
+        .map(it => ({
+          lang,
+          lang_name: langName,
+          flag,
+          answers: [it.answer],
+          question_id: it.question_id ?? null,
+          question_text: it.question_text ?? null,
+          participant_token: participant_token ?? null,
+        }));
+
+      if (rows.length === 0) {
+        return res.status(400).json({ error: "All items were empty" });
+      }
+
+      const { data, error } = await supabase
+        .from("survey_responses")
+        .insert(rows)
+        .select();
+      if (error) return res.status(500).json({ error: error.message });
+      return res.status(200).json({ ok: true, inserted: data.length, rows: data });
+    }
+
+    // ── Mode B: legacy single-question ──────────────────────────
+    if (!Array.isArray(answers)) {
+      return res.status(400).json({ error: "Missing answers or items" });
     }
     const { data, error } = await supabase
       .from("survey_responses")
@@ -51,7 +90,6 @@ export default async function handler(req, res) {
   if (req.method === "DELETE") {
     const { id, participant_token } = req.query;
 
-    // Delete a single response
     if (id) {
       const { error } = await supabase
         .from("survey_responses")
@@ -61,7 +99,6 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // Delete all responses from a single participant
     if (participant_token) {
       const { error } = await supabase
         .from("survey_responses")
@@ -71,7 +108,6 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // Delete ALL responses
     const { error } = await supabase
       .from("survey_responses")
       .delete()
