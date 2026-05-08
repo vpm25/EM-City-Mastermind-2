@@ -110,7 +110,15 @@ function Slide({ data, idx, total }) {
 }
 
 export default function App() {
-  const [screen,      setScreen]      = useState("lang");
+  // Initial screen — detect /live URL for the projection display
+  const [screen,      setScreen]      = useState(() => {
+    if (typeof window !== "undefined") {
+      const path = window.location.pathname || "";
+      const hash = window.location.hash || "";
+      if (path.endsWith("/live") || hash === "#live") return "live";
+    }
+    return "lang";
+  });
   const [lang,        setLang]        = useState("en");
   const [qIdx,        setQIdx]        = useState(0);
   const [answers,     setAnswers]     = useState([]);
@@ -358,46 +366,97 @@ Your job:
   };
 
   const handleNext = async () => {
-    if (!currentQId && qIdx < activeQs.length-1) { setQIdx(qIdx+1); return; }
-    const info = LANGS.find(l=>l.code===lang);
-    // Snapshot the question text at submission time so the data stays
-    // self-describing even if the question is later edited or deleted.
-    const currentQuestion = currentQId
-      ? questions.find(q => q.id === currentQId)
-      : activeQs[qIdx];
-    const newResp = {
-      lang, langName:info?.full||lang, flag:info?.flag||"",
-      answers:[...curAns],
-      question_id: currentQId || null,
-      question_text: currentQuestion?.en || null,
-      participant_token: participantToken
+    const info = LANGS.find(l => l.code === lang);
+
+    // ── Single-question legacy mode (admin pushed currentQId) ──
+    if (currentQId) {
+      const currentQuestion = questions.find(q => q.id === currentQId);
+      const newResp = {
+        lang, langName: info?.full || lang, flag: info?.flag || "",
+        answers: [...curAns],
+        question_id: currentQId,
+        question_text: currentQuestion?.en || null,
+        participant_token: participantToken
+      };
+      setSubmitError(null);
+      try {
+        const res = await fetch("/api/responses", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(newResp),
+        });
+        if (!res.ok) {
+          const errText = await res.text().catch(() => res.statusText);
+          throw new Error(errText || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        answeredQIdRef.current = currentQId;
+        setWaitingNext(true);
+        setScreen("waiting");
+        startPolling();
+        setResponses(prev => [...prev, {
+          id: data.id, lang: data.lang, langName: data.lang_name, flag: data.flag,
+          answers: data.answers, question_id: data.question_id,
+          question_text: data.question_text,
+          participant_token: data.participant_token,
+          time: new Date(data.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        }]);
+      } catch (e) {
+        setSubmitError(e.message || "Network error — please try again");
+      }
+      return;
+    }
+
+    // ── Multi-question form mode (all active questions on one screen) ──
+    // Build items array from current answers, one per active question.
+    const items = activeQs.map((q, i) => ({
+      question_id: q.id,
+      question_text: q.en || null,
+      answer: (curAns[i] || "").trim(),
+    }));
+
+    // Filter to only those with content. The backend also filters but we
+    // want to know locally if there's anything to send.
+    const filledItems = items.filter(it => it.answer);
+    if (filledItems.length === 0) {
+      setSubmitError("Please answer at least one question before submitting.");
+      return;
+    }
+
+    const payload = {
+      lang,
+      langName: info?.full || lang,
+      flag: info?.flag || "",
+      participant_token: participantToken,
+      items: filledItems,
     };
-    // Try to save FIRST, then transition. If POST fails, stay on the question and show error.
+
     setSubmitError(null);
     try {
       const res = await fetch("/api/responses", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify(newResp),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const errText = await res.text().catch(()=>res.statusText);
+        const errText = await res.text().catch(() => res.statusText);
         throw new Error(errText || `HTTP ${res.status}`);
       }
       const data = await res.json();
-      // Save succeeded — now transition to waiting and update local state
-      answeredQIdRef.current = currentQId;
-      setWaitingNext(true);
-      setScreen("waiting");
-      startPolling();
-      setResponses(prev=>[...prev,{
-        id:data.id, lang:data.lang, langName:data.lang_name, flag:data.flag,
-        answers:data.answers, question_id:data.question_id,
-        question_text:data.question_text,
-        participant_token:data.participant_token,
-        time:new Date(data.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
-      }]);
-    } catch(e) {
-      // Stay on the question and tell the user it didn't go through
+      // Move participant to thank-you screen
+      setScreen("complete");
+      // Push the new rows into local state so the admin sees them right away
+      if (data.rows && Array.isArray(data.rows)) {
+        setResponses(prev => [
+          ...prev,
+          ...data.rows.map(r => ({
+            id: r.id, lang: r.lang, langName: r.lang_name, flag: r.flag,
+            answers: r.answers, question_id: r.question_id,
+            question_text: r.question_text,
+            participant_token: r.participant_token,
+            time: new Date(r.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          }))
+        ]);
+      }
+    } catch (e) {
       setSubmitError(e.message || "Network error — please try again");
     }
   };
@@ -495,13 +554,32 @@ Your job:
           }
           return newQId;
         });
-        // Only show survey if session is open AND there is an active question
+
+        // Decide which screen the participant should see now
         if (sessionData.session_open) {
           sessionWasOpenRef.current = true;
+          // Already submitted? Stay on the thank-you screen.
+          if (screen === "complete") {
+            return;
+          }
           if (newQId && newQId !== answeredQIdRef.current) {
+            // Legacy single-question mode (admin pushed one specific question)
             setScreen("survey");
             setWaitingNext(false);
+          } else if (!newQId) {
+            // Multi-question form mode — show the form if there are active questions.
+            // Pull active questions from the latest data we just fetched.
+            const qDataLatest = questionsRes.ok ? await questionsRes.json().catch(() => []) : [];
+            const hasActive = Array.isArray(qDataLatest) && qDataLatest.some(q => q.active !== false);
+            if (hasActive) {
+              setScreen("survey");
+              setWaitingNext(false);
+            } else {
+              setScreen("waiting");
+              setWaitingNext(true);
+            }
           } else {
+            // Already answered the current pushed question
             setScreen("waiting");
             setWaitingNext(true);
           }
@@ -548,6 +626,34 @@ Your job:
       body: JSON.stringify({ session_open: false, session_ended_at: new Date().toISOString(), current_question_id: null })
     });
     setSessionOpen(false);
+    setCurrentQId(null);
+  };
+
+  // Open session in FORM mode (multi-question). All active questions become
+  // visible to participants at the same time, no current_question_id.
+  const openFormSession = async () => {
+    // Activate all questions if some are inactive
+    const allActive = questions.every(q => q.active !== false);
+    let qs = questions;
+    if (!allActive) {
+      qs = questions.map(q => ({ ...q, active: true }));
+      setQuestions(qs);
+      await syncQuestions(qs);
+    }
+    const res = await fetch("/api/session");
+    const data = await res.json();
+    await fetch("/api/session", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_open: true,
+        session_started_at: data.session_started_at || new Date().toISOString(),
+        current_question_id: null, // ← null means form-mode (all active questions)
+        questions_shown: qs.filter(q => q.active !== false).map(q => ({
+          id: q.id, en: q.en, activated_at: new Date().toISOString()
+        })),
+      })
+    });
+    setSessionOpen(true);
     setCurrentQId(null);
   };
 
@@ -688,6 +794,14 @@ Your job:
     // backend rate limits.
     const intervalMs = screen === "admin" ? 4000 : 20000;
     const interval = setInterval(loadQs, intervalMs);
+    return () => clearInterval(interval);
+  }, [screen]);
+
+  // ── Live projection screen: poll responses frequently for the counter ──
+  useEffect(() => {
+    if (screen !== "live") return;
+    loadResponses(); // initial fetch
+    const interval = setInterval(loadResponses, 3000); // every 3s feels alive
     return () => clearInterval(interval);
   }, [screen]);
 
@@ -1828,6 +1942,78 @@ ${block}`;
     <div className="app">
       <style>{css}</style>
 
+      {/* ── LIVE PROJECTION SCREEN ── */}
+      {/* Designed for projecting on a big screen during the event.
+          Open URL: https://your-app.vercel.app/live (or #live)
+          Hit F11 for fullscreen. Updates every 3 seconds. */}
+      {screen==="live" && (() => {
+        // Count distinct participants (one tick per person regardless of
+        // how many questions they answered).
+        const peopleCount = new Set(
+          responses.map(r => r.participant_token).filter(Boolean)
+        ).size;
+        return (
+          <div style={{
+            minHeight:"100vh",width:"100%",
+            background:`linear-gradient(135deg, ${DG} 0%, #0a3d20 100%)`,
+            display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+            padding:"40px 20px",fontFamily:"inherit",color:"#fff"}}>
+
+            {/* Top label */}
+            <div style={{position:"absolute",top:"30px",left:"50%",transform:"translateX(-50%)",
+              fontSize:"14px",letterSpacing:"6px",textTransform:"uppercase",color:"#b4dcc3",fontWeight:"700",
+              whiteSpace:"nowrap"}}>
+              ✦ City Development Mastermind — Live ✦
+            </div>
+
+            {/* The big counter */}
+            <div style={{textAlign:"center"}}>
+              <div style={{
+                fontSize:"clamp(120px, 22vw, 280px)",
+                fontWeight:"900",lineHeight:"1",
+                color:"#fff",
+                textShadow:"0 4px 30px rgba(0,0,0,0.3)",
+                letterSpacing:"-4px",
+                fontVariantNumeric:"tabular-nums",
+                animation:"liveCountPulse 2s ease-in-out infinite",
+              }}>
+                {peopleCount.toLocaleString()}
+              </div>
+              <div style={{
+                fontSize:"clamp(20px, 2.5vw, 32px)",
+                marginTop:"20px",letterSpacing:"6px",textTransform:"uppercase",
+                color:"#b4dcc3",fontWeight:"600"}}>
+                People have answered
+              </div>
+              <div style={{
+                fontSize:"clamp(14px, 1.4vw, 18px)",
+                marginTop:"30px",color:"#7aaa88",fontWeight:"500",fontStyle:"italic"}}>
+                and counting…
+              </div>
+            </div>
+
+            {/* Bottom subtle pulse indicator */}
+            <div style={{position:"absolute",bottom:"40px",left:"50%",transform:"translateX(-50%)",
+              display:"flex",alignItems:"center",gap:"10px",fontSize:"12px",color:"#7aaa88",letterSpacing:"3px",textTransform:"uppercase",fontWeight:"600"}}>
+              <span style={{display:"inline-block",width:"10px",height:"10px",borderRadius:"50%",
+                background:"#27ae60",animation:"liveDot 1.5s ease-in-out infinite"}} />
+              Updating live
+            </div>
+
+            <style>{`
+              @keyframes liveCountPulse {
+                0%, 100% { transform: scale(1); }
+                50% { transform: scale(1.02); }
+              }
+              @keyframes liveDot {
+                0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(39,174,96,0.6); }
+                50% { opacity: 0.5; box-shadow: 0 0 0 12px rgba(39,174,96,0); }
+              }
+            `}</style>
+          </div>
+        );
+      })()}
+
       {/* ── LANGUAGE SELECT ── */}
       {screen==="lang" && (
         <div className="center">
@@ -1893,10 +2079,10 @@ ${block}`;
       )}
 
       {/* ── SURVEY ── */}
-      {screen==="survey" && currentQId && (
+      {screen==="survey" && (activeQs.length > 0 || currentQId) && (
         <div className="center">
-          <div style={{maxWidth:"600px",width:"100%"}}>
-            {/* Back to language */}
+          <div style={{maxWidth:"680px",width:"100%"}}>
+            {/* Top bar — language switcher */}
             <div style={{marginBottom:"20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <button onClick={()=>setScreen("langSwitch")} style={{
                 background:"none",border:"none",color:"#7aaa88",fontSize:"13px",
@@ -1904,37 +2090,106 @@ ${block}`;
                 🌐 Change language
               </button>
             </div>
-            {/* Progress */}
-            <div style={{marginBottom:"32px"}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:"10px"}}>
-                <span style={{fontSize:"11px",letterSpacing:"2px",textTransform:"uppercase",color:"#7aaa88",fontWeight:"600"}}>{currentQId ? "" : `${t.q} ${qIdx+1} / ${activeQs.length}`}</span>
-                <span style={{fontSize:"12px",color:G,fontWeight:"700"}}>{currentQId ? "" : `${Math.round(pct)}%`}</span>
-              </div>
-              <div style={{height:"6px",background:BD,borderRadius:"6px",overflow:"hidden"}}>
-                <div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${DG},${G})`,borderRadius:"6px",transition:"width .5s ease"}} />
-              </div>
-            </div>
-            <p style={{fontSize:"11px",letterSpacing:"3px",textTransform:"uppercase",color:G,marginBottom:"14px",fontWeight:"700"}}>{t.q} {String(qIdx+1).padStart(2,"0")}</p>
-            <h2 style={{fontSize:"24px",fontWeight:"700",lineHeight:"1.5",marginBottom:"26px"}}>
-              {getLang(currentQId ? questions.find(q=>q.id===currentQId) : activeQs[qIdx], lang)}
-            </h2>
-            <textarea value={curAns[currentQId?0:qIdx]||""} onChange={e=>changeAnswer(e.target.value)}
-              placeholder={t.ph} rows={6}
-              style={{width:"100%",background:"#fff",border:`2px solid ${BD}`,borderRadius:"12px",
-                padding:"20px",color:"#1a3a26",fontSize:"15px",lineHeight:"1.7",resize:"vertical",outline:"none"}}
-              onFocus={e=>e.target.style.borderColor=G} onBlur={e=>e.target.style.borderColor=BD} />
-            {submitError && (
-              <div style={{marginTop:"12px",padding:"12px 14px",background:"#fff2f2",border:"2px solid #faa",
-                borderRadius:"10px",color:"#c0392b",fontSize:"13px",fontWeight:"600"}}>
-                ⚠️ {submitError}
-              </div>
+
+            {/* If admin pushed a single question (legacy mode) — show only that one */}
+            {currentQId ? (
+              <>
+                <p style={{fontSize:"11px",letterSpacing:"3px",textTransform:"uppercase",color:G,marginBottom:"14px",fontWeight:"700"}}>{t.q}</p>
+                <h2 style={{fontSize:"24px",fontWeight:"700",lineHeight:"1.5",marginBottom:"26px"}}>
+                  {getLang(questions.find(q=>q.id===currentQId), lang)}
+                </h2>
+                <textarea value={curAns[0]||""} onChange={e=>changeAnswer(e.target.value)}
+                  placeholder={t.ph} rows={6}
+                  style={{width:"100%",background:"#fff",border:`2px solid ${BD}`,borderRadius:"12px",
+                    padding:"20px",color:"#1a3a26",fontSize:"15px",lineHeight:"1.7",resize:"vertical",outline:"none"}}
+                  onFocus={e=>e.target.style.borderColor=G} onBlur={e=>e.target.style.borderColor=BD} />
+                {submitError && (
+                  <div style={{marginTop:"12px",padding:"12px 14px",background:"#fff2f2",border:"2px solid #faa",
+                    borderRadius:"10px",color:"#c0392b",fontSize:"13px",fontWeight:"600"}}>
+                    ⚠️ {submitError}
+                  </div>
+                )}
+                <Btn className="nb" onClick={handleNext} disabled={!curAns[0]?.trim()}
+                  style={{width:"100%",marginTop:"16px",padding:"17px",fontSize:"14px",
+                    background:curAns[0]?.trim()?`linear-gradient(135deg,${DG},${G})`:BD,
+                    color:curAns[0]?.trim()?"#fff":"#7aaa88",boxShadow:"none"}}>
+                  {t.submit} ✓
+                </Btn>
+              </>
+            ) : (
+              <>
+                {/* Multi-question form view — all active questions on one screen */}
+                {(() => {
+                  const answeredCount = curAns.filter(a => a && a.trim()).length;
+                  return (
+                    <>
+                      {/* Progress indicator */}
+                      <div style={{marginBottom:"28px"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:"10px",fontSize:"11px",letterSpacing:"2px",textTransform:"uppercase",fontWeight:"600"}}>
+                          <span style={{color:"#7aaa88"}}>{answeredCount} / {activeQs.length} {t.q.toLowerCase()}{answeredCount===1?"":"s"}</span>
+                          <span style={{color:G}}>{Math.round((answeredCount/Math.max(activeQs.length,1))*100)}%</span>
+                        </div>
+                        <div style={{height:"6px",background:BD,borderRadius:"6px",overflow:"hidden"}}>
+                          <div style={{height:"100%",width:`${(answeredCount/Math.max(activeQs.length,1))*100}%`,
+                            background:`linear-gradient(90deg,${DG},${G})`,borderRadius:"6px",transition:"width .5s ease"}} />
+                        </div>
+                      </div>
+
+                      {/* All questions stacked */}
+                      {activeQs.map((q, i) => (
+                        <div key={q.id} style={{marginBottom:"28px",padding:"22px",background:"#fff",borderRadius:"14px",border:`2px solid ${BD}`}}>
+                          <p style={{fontSize:"10px",letterSpacing:"3px",textTransform:"uppercase",color:G,marginBottom:"10px",fontWeight:"700"}}>
+                            {t.q} {String(i+1).padStart(2,"0")} / {String(activeQs.length).padStart(2,"0")}
+                          </p>
+                          <h2 style={{fontSize:"19px",fontWeight:"700",lineHeight:"1.45",marginBottom:"16px",color:"#1a3a26"}}>
+                            {getLang(q, lang)}
+                          </h2>
+                          <textarea
+                            value={curAns[i]||""}
+                            onChange={e=>{
+                              const newAns = [...(curAns.length===activeQs.length?curAns:activeQs.map(()=>""))];
+                              newAns[i] = e.target.value;
+                              setAnswers(newAns);
+                            }}
+                            placeholder={t.ph}
+                            rows={4}
+                            style={{width:"100%",background:"#fafbfc",border:`2px solid ${BD}`,borderRadius:"10px",
+                              padding:"14px 16px",color:"#1a3a26",fontSize:"14px",lineHeight:"1.6",resize:"vertical",outline:"none",
+                              fontFamily:"inherit",boxSizing:"border-box"}}
+                            onFocus={e=>e.target.style.borderColor=G}
+                            onBlur={e=>e.target.style.borderColor=BD} />
+                        </div>
+                      ))}
+
+                      {/* Submit error */}
+                      {submitError && (
+                        <div style={{marginBottom:"14px",padding:"12px 14px",background:"#fff2f2",border:"2px solid #faa",
+                          borderRadius:"10px",color:"#c0392b",fontSize:"13px",fontWeight:"600"}}>
+                          ⚠️ {submitError}
+                        </div>
+                      )}
+
+                      {/* Submit all */}
+                      <Btn className="nb" onClick={handleNext} disabled={answeredCount===0}
+                        style={{width:"100%",padding:"18px",fontSize:"15px",fontWeight:"700",
+                          background:answeredCount>0?`linear-gradient(135deg,${DG},${G})`:BD,
+                          color:answeredCount>0?"#fff":"#7aaa88",boxShadow:"none"}}>
+                        {answeredCount===0
+                          ? `${t.submit} (please answer at least one)`
+                          : answeredCount<activeQs.length
+                            ? `${t.submit} ✓ (${answeredCount}/${activeQs.length})`
+                            : `${t.submit} ✓`}
+                      </Btn>
+                      {answeredCount>0 && answeredCount<activeQs.length && (
+                        <p style={{fontSize:"12px",color:"#7aaa88",textAlign:"center",marginTop:"10px",lineHeight:"1.5"}}>
+                          You can submit with empty questions if you prefer.
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
+              </>
             )}
-            <Btn className="nb" onClick={handleNext} disabled={!curAns[currentQId?0:qIdx]?.trim()}
-              style={{width:"100%",marginTop:"16px",padding:"17px",fontSize:"14px",
-                background:curAns[currentQId?0:qIdx]?.trim()?`linear-gradient(135deg,${DG},${G})`:BD,
-                color:curAns[currentQId?0:qIdx]?.trim()?"#fff":"#7aaa88",boxShadow:"none"}}>
-              {currentQId ? `${t.submit} ✓` : qIdx===activeQs.length-1 ? `${t.submit} ✓` : `${t.next} →`}
-            </Btn>
           </div>
         </div>
       )}
@@ -2082,6 +2337,14 @@ ${block}`;
                 </p>
               </div>
               <div style={{display:"flex",gap:"10px",flexWrap:"wrap"}}>
+                {!sessionOpen && questions.length > 0 && (
+                  <button onClick={openFormSession} style={{padding:"10px 20px",borderRadius:"9px",
+                    background:`linear-gradient(135deg,${DG},${G})`,color:"#fff",border:"none",
+                    fontFamily:"inherit",fontSize:"13px",fontWeight:"700",cursor:"pointer",
+                    boxShadow:"0 4px 15px rgba(39,174,96,.25)"}}>
+                    🚀 Open Session — Show All Questions
+                  </button>
+                )}
                 {sessionOpen && (
                   <button onClick={closeSession} style={{padding:"10px 20px",borderRadius:"9px",
                     background:"linear-gradient(135deg,#c0392b,#e74c3c)",color:"#fff",border:"none",
