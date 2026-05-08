@@ -158,6 +158,11 @@ export default function App() {
   const [sessionDone, setSessionDone]    = useState(false);
   const [participantToken, setParticipantToken] = useState(null);
   const [submitError, setSubmitError]    = useState(null); // ← surface failed submits to the user
+  // ── Sessions (multi-event isolation) ──
+  const [sessions,      setSessions]      = useState([]);   // [{id, name, created_at, ...}]
+  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [creatingSession, setCreatingSession] = useState(false);
+  const [newSessionName, setNewSessionName] = useState("");
   const pollRefHandle = useRef(null);
   const answeredQIdRef = useRef(null);
   const sessionWasOpenRef = useRef(false);
@@ -357,10 +362,16 @@ Your job:
     try {
       const res = await fetch("/api/session");
       const data = await res.json();
-      if (data.session_open && data.current_question_id) {
+      if (data.session_open) {
         sessionWasOpenRef.current = true;
-        setCurrentQId(data.current_question_id);
-        setScreen("survey");
+        if (data.current_question_id) {
+          // Legacy single-question mode
+          setCurrentQId(data.current_question_id);
+          setScreen("survey");
+        } else {
+          // Multi-question form mode — let polling decide based on questions state
+          setScreen("survey");
+        }
       }
     } catch {}
   };
@@ -503,6 +514,8 @@ Your job:
         setCurrentQId(sData.current_question_id || null);
       }
     } catch(e) {}
+    // Load the list of sessions for the dropdown selector
+    loadSessions();
   };
 
   // ── Questions management ──────────────────────────────────
@@ -518,11 +531,12 @@ Your job:
         ]);
         if (!sessionRes.ok) return;
         const sessionData = await sessionRes.json();
-        // Update questions in real time
+        // Update questions in real time — capture the data once and reuse it below
+        let qDataLatest = [];
         if (questionsRes.ok) {
-          const qData = await questionsRes.json();
-          if (Array.isArray(qData) && qData.length > 0) {
-            setQuestions(qData.map(q => ({
+          qDataLatest = await questionsRes.json().catch(() => []);
+          if (Array.isArray(qDataLatest) && qDataLatest.length > 0) {
+            setQuestions(qDataLatest.map(q => ({
               id: q.id, active: q.active, en: q.en,
               translations: q.translations || {},
               analysisInstruction: q.analysis_instruction || "",
@@ -567,9 +581,8 @@ Your job:
             setScreen("survey");
             setWaitingNext(false);
           } else if (!newQId) {
-            // Multi-question form mode — show the form if there are active questions.
-            // Pull active questions from the latest data we just fetched.
-            const qDataLatest = questionsRes.ok ? await questionsRes.json().catch(() => []) : [];
+            // Multi-question form mode — session is open without a specific
+            // pushed question. Show the form whenever there are active questions.
             const hasActive = Array.isArray(qDataLatest) && qDataLatest.some(q => q.active !== false);
             if (hasActive) {
               setScreen("survey");
@@ -618,6 +631,110 @@ Your job:
     });
     setSessionOpen(true);
     setCurrentQId(q.id);
+  };
+
+  // ── Sessions (multi-event) management ──
+  // Loads the list of sessions and which one is active. Called on admin mount
+  // and after any create/switch operation so the UI stays in sync.
+  const loadSessions = async () => {
+    try {
+      const res = await fetch("/api/sessions");
+      if (!res.ok) return;
+      const data = await res.json();
+      setSessions(data.sessions || []);
+      setActiveSessionId(data.activeSessionId);
+    } catch (e) { /* ignore */ }
+  };
+
+  const createSession = async (name) => {
+    if (!name?.trim()) return;
+    try {
+      const res = await fetch("/api/sessions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", name: name.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.text().catch(() => res.statusText);
+        alert("Could not create session: " + err);
+        return;
+      }
+      // Switching to the new session resets everything tied to "current event"
+      setNewSessionName("");
+      setCreatingSession(false);
+      // Reload everything that depends on the active session
+      await loadSessions();
+      await loadResponses();
+      // Reload questions through the existing polling effect by forcing a fetch
+      const qRes = await fetch("/api/questions");
+      if (qRes.ok) {
+        const qData = await qRes.json();
+        setQuestions((qData || []).map(q => ({
+          id: q.id, active: q.active, en: q.en,
+          translations: q.translations || {},
+          analysisInstruction: q.analysis_instruction || "",
+        })));
+      }
+      setSessionOpen(false);
+      setCurrentQId(null);
+    } catch (e) {
+      alert("Could not create session: " + e.message);
+    }
+  };
+
+  const switchSession = async (sessionId) => {
+    if (!sessionId || sessionId === activeSessionId) return;
+    try {
+      const res = await fetch("/api/sessions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "switch", sessionId }),
+      });
+      if (!res.ok) {
+        const err = await res.text().catch(() => res.statusText);
+        alert("Could not switch session: " + err);
+        return;
+      }
+      await loadSessions();
+      await loadResponses();
+      const qRes = await fetch("/api/questions");
+      if (qRes.ok) {
+        const qData = await qRes.json();
+        setQuestions((qData || []).map(q => ({
+          id: q.id, active: q.active, en: q.en,
+          translations: q.translations || {},
+          analysisInstruction: q.analysis_instruction || "",
+        })));
+      }
+      setSessionOpen(false);
+      setCurrentQId(null);
+    } catch (e) {
+      alert("Could not switch session: " + e.message);
+    }
+  };
+
+  const renameSession = async (sessionId, name) => {
+    if (!name?.trim()) return;
+    try {
+      const res = await fetch("/api/sessions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "rename", sessionId, name: name.trim() }),
+      });
+      if (res.ok) await loadSessions();
+    } catch (e) { /* ignore */ }
+  };
+
+  const deleteSession = async (sessionId) => {
+    if (!window.confirm("Delete this session and ALL its questions and responses? This cannot be undone.")) return;
+    try {
+      const res = await fetch(`/api/sessions?sessionId=${sessionId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.text().catch(() => res.statusText);
+        alert("Could not delete session: " + err);
+        return;
+      }
+      await loadSessions();
+    } catch (e) {
+      alert("Could not delete session: " + e.message);
+    }
   };
 
   const closeSession = async () => {
@@ -2222,7 +2339,18 @@ ${block}`;
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"12px"}}>
               {LANGS.map(l=>(
-                <button key={l.code} className="lb" onClick={()=>{setLang(l.code);setScreen(currentQId?"survey":"waiting");}} style={{
+                <button key={l.code} className="lb" onClick={()=>{
+                  setLang(l.code);
+                  // Decide where to go based on session state.
+                  // If session is open AND there are active questions, go straight to the survey.
+                  // Otherwise go to waiting and let polling pick up the right state.
+                  const hasActive = questions.some(q => q.active !== false);
+                  if (sessionOpen && (currentQId || hasActive)) {
+                    setScreen("survey");
+                  } else {
+                    setScreen("waiting");
+                  }
+                }} style={{
                   background: lang===l.code?"#f0faf4":"#fff",
                   border:`2px solid ${lang===l.code?G:BD}`,
                   borderRadius:"14px",padding:"20px 10px",cursor:"pointer",textAlign:"center",
@@ -2323,6 +2451,75 @@ ${block}`;
                 <div style={{fontSize:"10px",color:"#7aaa88",letterSpacing:"2px",textTransform:"uppercase",fontWeight:"600"}}>{s.l}</div>
               </div>
             ))}
+          </div>
+
+          {/* ── Event Session Selector ── */}
+          {/* Lets admins switch between separate "events" (e.g., PT&MT vs CDMM).
+              Each session has its own questions, responses, and analysis. */}
+          <div style={{maxWidth:"1020px",margin:"0 auto 16px",background:"#fff",
+            border:`2px solid ${BD}`,borderRadius:"14px",padding:"18px 20px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"12px"}}>
+              <div style={{flex:1,minWidth:"220px"}}>
+                <p style={{fontSize:"10px",letterSpacing:"2px",textTransform:"uppercase",color:G,fontWeight:"700",marginBottom:"6px"}}>
+                  📂 Event Session
+                </p>
+                <p style={{fontSize:"12px",color:"#7aaa88",marginBottom:"10px",lineHeight:"1.5"}}>
+                  Each session is an independent event with its own questions, responses, and analysis. Switch sessions or create a new one without affecting the others.
+                </p>
+                {!creatingSession ? (
+                  <div style={{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap"}}>
+                    <select
+                      value={activeSessionId || ""}
+                      onChange={e => switchSession(parseInt(e.target.value, 10))}
+                      style={{padding:"9px 12px",borderRadius:"8px",border:`2px solid ${BD}`,
+                        fontSize:"13px",fontWeight:"600",color:"#1a3a26",background:"#fff",cursor:"pointer",
+                        fontFamily:"inherit",outline:"none",minWidth:"220px"}}
+                    >
+                      {sessions.length === 0 && <option value="">Loading...</option>}
+                      {sessions.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} {s.id === activeSessionId ? "  ← active" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <SmallBtn onClick={() => setCreatingSession(true)} color="green">
+                      + New Session
+                    </SmallBtn>
+                    {activeSessionId && sessions.length > 1 && (
+                      <SmallBtn
+                        onClick={() => deleteSession(sessions.find(s => s.id !== activeSessionId)?.id)}
+                        color="white"
+                        title="Delete a session (cannot delete the active one)"
+                      >
+                        🗑 Delete other…
+                      </SmallBtn>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap"}}>
+                    <input
+                      autoFocus
+                      type="text"
+                      value={newSessionName}
+                      onChange={e => setNewSessionName(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") createSession(newSessionName);
+                        if (e.key === "Escape") { setCreatingSession(false); setNewSessionName(""); }
+                      }}
+                      placeholder='e.g., "PT&MT - May 14" or "CDMM - May 15"'
+                      style={{padding:"9px 12px",borderRadius:"8px",border:`2px solid ${G}`,
+                        fontSize:"13px",fontFamily:"inherit",outline:"none",minWidth:"260px"}}
+                    />
+                    <SmallBtn onClick={() => createSession(newSessionName)} color="green" disabled={!newSessionName.trim()}>
+                      ✓ Create
+                    </SmallBtn>
+                    <SmallBtn onClick={() => { setCreatingSession(false); setNewSessionName(""); }} color="white">
+                      Cancel
+                    </SmallBtn>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Session Controls */}
