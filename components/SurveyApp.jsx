@@ -2319,8 +2319,7 @@ ${block}`;
               borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
               fontSize:"34px",margin:"0 auto 24px",boxShadow:"0 8px 24px rgba(39,174,96,.3)"}}>✓</div>
             <h2 style={{fontSize:"34px",fontWeight:"800",marginBottom:"10px"}}>{t.thanks}</h2>
-            <p style={{color:"#7aaa88",fontSize:"15px",marginBottom:"32px"}}>{t.saved}</p>
-            <Btn onClick={reset}>{t.newP} →</Btn>
+            <p style={{color:"#7aaa88",fontSize:"15px"}}>{t.saved}</p>
           </div>
         </div>
       )}
@@ -2438,6 +2437,13 @@ ${block}`;
                 cursor:hasData?"pointer":"not-allowed",border:`2px solid ${csvDone?"#27ae60":DG}`,
                 background:csvDone?"#d5f5e3":DG,color:csvDone?DG:"#fff",opacity:hasData?1:.4}}>
                 {csvDone?"✓ Downloaded!":"⬇ Export CSV"}
+              </button>
+              <button onClick={()=>window.open("/live","_blank")} style={{
+                padding:"9px 16px",borderRadius:"9px",fontSize:"12px",fontWeight:"700",
+                cursor:"pointer",border:`2px solid ${G}`,background:"#fff",color:DG,
+                fontFamily:"inherit"}}
+                title="Open the projection screen in a new tab — for showing on a big screen during the event">
+                🖥️ Open Live View
               </button>
               <SmallBtn onClick={()=>setScreen("lang")} color="white">← Survey</SmallBtn>
             </div>
