@@ -5,25 +5,41 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
+// Helper: find the currently active session id from session_state.
+async function getActiveSessionId() {
+  const { data } = await supabase
+    .from("session_state")
+    .select("active_session_id")
+    .eq("id", 1)
+    .single();
+  return data?.active_session_id || null;
+}
+
 export default async function handler(req, res) {
-  // ── GET: list all questions ───────────────────────────────────
+  // ── GET: list all questions for the active session ────────────
   if (req.method === "GET") {
-    const { data, error } = await supabase
+    const activeId = await getActiveSessionId();
+    let query = supabase
       .from("survey_questions")
-      .select("id, en, translations, active, sort_order")
+      .select("id, en, translations, active, sort_order, analysis_instruction, session_id")
       .order("sort_order", { ascending: true });
+    // Filter by active session if one is set; if none, return all (for migration safety)
+    if (activeId) {
+      query = query.eq("session_id", activeId);
+    }
+    const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json(data || []);
   }
 
-  // ── POST: save the full set of questions ──────────────────────
-  // Strategy: UPSERT existing rows by id, then delete rows no longer present.
-  // This preserves question IDs across edits, which keeps survey_responses.question_id valid forever.
+  // ── POST: save the full set of questions for the active session ──
   if (req.method === "POST") {
     const { questions } = req.body;
     if (!questions || !Array.isArray(questions)) {
       return res.status(400).json({ error: "Invalid questions" });
     }
+
+    const activeId = await getActiveSessionId();
 
     const incomingIds = [];
     const toUpsert = [];
@@ -32,13 +48,13 @@ export default async function handler(req, res) {
     questions.forEach((q, i) => {
       const row = {
         en: q.en || "",
-        translations: q.translations || {}, // JSONB — stores all language translations
+        translations: q.translations || {},
         active: q.active !== false,
         sort_order: i,
+        analysis_instruction: q.analysisInstruction || null,
+        session_id: activeId,
       };
 
-      // A real DB id is a small integer (Postgres SERIAL). Anything else
-      // (Date.now() placeholders, etc.) means it's a new row needing a fresh id.
       if (typeof q.id === "number" && q.id > 0 && q.id < 1000000) {
         row.id = q.id;
         incomingIds.push(q.id);
@@ -49,7 +65,7 @@ export default async function handler(req, res) {
     });
 
     try {
-      // 1. Upsert existing rows (preserves their ids)
+      // 1. Upsert existing rows
       if (toUpsert.length) {
         const { error: upErr } = await supabase
           .from("survey_questions")
@@ -57,7 +73,7 @@ export default async function handler(req, res) {
         if (upErr) throw upErr;
       }
 
-      // 2. Insert brand-new rows (DB assigns ids)
+      // 2. Insert new rows
       let inserted = [];
       if (toInsert.length) {
         const { data: insData, error: insErr } = await supabase
@@ -68,27 +84,27 @@ export default async function handler(req, res) {
         inserted = insData || [];
       }
 
-      // 3. Delete rows that were removed in the UI
+      // 3. Delete removed rows — ONLY within the active session, never across sessions
       const keepIds = [...incomingIds, ...inserted.map(r => r.id)];
-      if (keepIds.length) {
-        const { error: delErr } = await supabase
-          .from("survey_questions")
-          .delete()
-          .not("id", "in", `(${keepIds.join(",")})`);
-        if (delErr) throw delErr;
-      } else {
-        const { error: delErr } = await supabase
-          .from("survey_questions")
-          .delete()
-          .neq("id", 0);
-        if (delErr) throw delErr;
+      let deleteQuery = supabase.from("survey_questions").delete();
+      if (activeId) {
+        deleteQuery = deleteQuery.eq("session_id", activeId);
       }
+      if (keepIds.length) {
+        deleteQuery = deleteQuery.not("id", "in", `(${keepIds.join(",")})`);
+      } else {
+        deleteQuery = deleteQuery.neq("id", 0); // delete all in this session if list is empty
+      }
+      const { error: delErr } = await deleteQuery;
+      if (delErr) throw delErr;
 
-      // Return the latest state
-      const { data, error } = await supabase
+      // Return the latest state for the active session
+      let finalQuery = supabase
         .from("survey_questions")
-        .select("id, en, translations, active, sort_order")
+        .select("id, en, translations, active, sort_order, analysis_instruction, session_id")
         .order("sort_order", { ascending: true });
+      if (activeId) finalQuery = finalQuery.eq("session_id", activeId);
+      const { data, error } = await finalQuery;
       if (error) throw error;
       return res.status(200).json(data || []);
     } catch (e) {
