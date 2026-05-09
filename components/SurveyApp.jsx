@@ -155,6 +155,10 @@ export default function App() {
   const [loadingOnePager, setLoadingOnePager] = useState(false);
   const [slideIdx,    setSlideIdx]    = useState(0);
   const [hiddenSlides,setHiddenSlides]= useState(new Set());
+  // ── Live presentation mode (push slides to /live screen) ──
+  const [liveMode,     setLiveMode]     = useState("counter");  // 'counter' or 'presentation'
+  const [liveSlideIdx, setLiveSlideIdx] = useState(0);
+  const [liveSlides,   setLiveSlides]   = useState(null);       // slides currently pushed to /live
   const [pw,          setPw]          = useState("");
   const [pwErr,       setPwErr]       = useState(false);
   const [copied,      setCopied]      = useState(false);
@@ -287,8 +291,8 @@ The responses below come from a multilingual audience. Each response is labeled 
 Your job:
 1. UNDERSTAND every response in its original language. You are fluent in all of them.
 2. When grouping themes or counting mentions, treat semantically equivalent responses as the same theme regardless of the language they were written in. Example: a Russian response "лидерство" and an English response "leadership" both count toward the same "leadership" theme.
-3. When QUOTING a participant, ALWAYS provide the quote in BOTH the original language AND an English translation in parentheses. Example: "лидерство и команда" (leadership and team).
-4. Your final analysis must be written entirely in ENGLISH. Themes, insights, summaries — all in English. Only the verbatim quotes preserve their original language (with English translation).
+3. When QUOTING a participant, provide the quote in the ORIGINAL language. If the analysis is being delivered in a different language than the quote, add a parenthetical translation. (Examples: if delivering in English and the quote is Russian, write 'лидерство и команда' (leadership and team). If delivering in Russian and the quote is English, write "leadership and team" (лидерство и команда).)
+4. OUTPUT LANGUAGE: by default, write the analysis in ENGLISH. BUT if the team's instruction (or any explicit instruction in this prompt) specifies a different output language — for example "output in Russian" or "ответ на русском" — that instruction takes priority. The team-specified language is the SOURCE OF TRUTH for output.
 5. Do not call out the language distribution as a finding unless it is genuinely strategic (e.g., "no responses in language X" if that's surprising). Avoid trivial observations like "responses came in 5 languages".
 `;
 
@@ -757,6 +761,65 @@ Your job:
     }
   };
 
+  // ── Live presentation control ──
+  // Pushes the currently-generated slides to the /live screen so the admin
+  // can project them. Only the admin can trigger this — participants on /live
+  // just read whatever is in session_state.
+  const pushPresentationToLive = async () => {
+    if (!slides || !slides.slides) {
+      alert("Generate the presentation first.");
+      return;
+    }
+    // Filter out any hidden slides
+    const visible = slides.slides.filter((_, i) => !hiddenSlides.has(i));
+    if (!visible.length) {
+      alert("All slides are hidden — show at least one before pushing to live.");
+      return;
+    }
+    try {
+      const res = await fetch("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          live_mode: "presentation",
+          live_slide_idx: 0,
+          live_slides: { slides: visible, presentationTitle: slides.presentationTitle },
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text().catch(() => "Could not push"));
+      setLiveMode("presentation");
+      setLiveSlideIdx(0);
+      setLiveSlides({ slides: visible, presentationTitle: slides.presentationTitle });
+    } catch (e) {
+      alert("Could not push to live: " + e.message);
+    }
+  };
+
+  const showCounterOnLive = async () => {
+    try {
+      await fetch("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ live_mode: "counter" }),
+      });
+      setLiveMode("counter");
+    } catch (e) { /* ignore */ }
+  };
+
+  const goLiveSlide = async (newIdx) => {
+    if (!liveSlides?.slides) return;
+    const total = liveSlides.slides.length;
+    if (newIdx < 0 || newIdx >= total) return;
+    try {
+      await fetch("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ live_slide_idx: newIdx }),
+      });
+      setLiveSlideIdx(newIdx);
+    } catch (e) { /* ignore */ }
+  };
+
   const closeSession = async () => {
     await fetch("/api/session", {
       method:"POST", headers:{"Content-Type":"application/json"},
@@ -950,7 +1013,7 @@ Your job:
     return () => clearInterval(interval);
   }, [screen]);
 
-  // ── Live projection screen: poll responses + active session name ──
+  // ── Live projection screen: poll responses + session info + live mode ──
   useEffect(() => {
     if (screen !== "live") return;
     const fetchAll = async () => {
@@ -965,9 +1028,19 @@ Your job:
           setActiveSessionId(data.activeSessionId);
         }
       } catch {}
+      // Live presentation state (counter vs presentation, current slide, slides JSON)
+      try {
+        const res = await fetch("/api/session");
+        if (res.ok) {
+          const s = await res.json();
+          setLiveMode(s.live_mode || "counter");
+          setLiveSlideIdx(s.live_slide_idx || 0);
+          setLiveSlides(s.live_slides || null);
+        }
+      } catch {}
     };
     fetchAll(); // initial
-    const interval = setInterval(fetchAll, 3000); // every 3s feels alive
+    const interval = setInterval(fetchAll, 2000); // every 2s for snappy slide changes
     return () => clearInterval(interval);
   }, [screen]);
 
@@ -1378,6 +1451,21 @@ ${ans}`;
       pptx.layout = "LAYOUT_WIDE"; // 13.33 x 7.5 in
       pptx.title = slides.presentationTitle || "Survey Results";
 
+      // Try to load the logo as data URL so it embeds in the pptx
+      let logoDataUrl = null;
+      try {
+        const logoRes = await fetch("/herbalife-logo-white.png");
+        if (logoRes.ok) {
+          const blob = await logoRes.blob();
+          logoDataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        }
+      } catch { /* logo optional — proceed without it */ }
+
       const visible = slides.slides.filter((_, i) => !hiddenSlides.has(i));
       visible.forEach((s, i) => {
         const slide = pptx.addSlide();
@@ -1418,7 +1506,15 @@ ${ans}`;
             margin: 0.2,
           });
         }
-        // Slide number
+        // Herbalife logo — bottom-left, subtle (50% transparency)
+        if (logoDataUrl) {
+          slide.addImage({
+            data: logoDataUrl,
+            x: 0.4, y: 7.0, w: 1.4, h: 0.4,
+            transparency: 50, // 0 = opaque, 100 = fully transparent
+          });
+        }
+        // Slide number — bottom-right
         slide.addText(`${i + 1}/${visible.length}`, {
           x: 12.3, y: 7.1, w: 0.7, h: 0.3,
           fontSize: 10, color: "FFFFFF", align: "right", italic: true,
@@ -2170,6 +2266,96 @@ ${questionBlocks}`;
         // Pull the active session name (loaded by the live polling effect).
         const activeSession = sessions.find(s => s.id === activeSessionId);
         const eventName = activeSession?.name || "Live Session";
+
+        // ── Presentation mode: render the current slide full-screen ──
+        if (liveMode === "presentation" && liveSlides?.slides?.length) {
+          const slidesArr = liveSlides.slides;
+          const idx = Math.max(0, Math.min(liveSlideIdx, slidesArr.length - 1));
+          const current = slidesArr[idx];
+          return (
+            <div style={{
+              minHeight:"100vh", width:"100%",
+              background:`linear-gradient(135deg, ${DG} 0%, #0a3d20 100%)`,
+              display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+              padding:"40px 60px", fontFamily:"inherit", color:"#fff",
+              boxSizing:"border-box"}}>
+              {/* Top label — event name */}
+              <div style={{position:"absolute",top:"24px",left:"50%",transform:"translateX(-50%)",
+                fontSize:"clamp(11px, 1.1vw, 15px)",letterSpacing:"5px",textTransform:"uppercase",
+                color:"#b4dcc3",fontWeight:"700",whiteSpace:"nowrap",textAlign:"center",
+                padding:"0 20px",maxWidth:"95vw",overflow:"hidden",textOverflow:"ellipsis"}}>
+                ✦ {eventName} ✦
+              </div>
+
+              {/* Slide content */}
+              <div style={{maxWidth:"1200px", width:"100%"}}>
+                {/* Category pill */}
+                {current.category && (
+                  <div style={{display:"inline-block", padding:"6px 18px", borderRadius:"30px",
+                    background:"rgba(255,255,255,0.15)", color:"#fff",
+                    fontSize:"clamp(11px, 0.9vw, 14px)", fontWeight:"700",
+                    letterSpacing:"3px", textTransform:"uppercase", marginBottom:"22px"}}>
+                    {current.category}
+                  </div>
+                )}
+                {/* Icon */}
+                {current.icon && (
+                  <div style={{fontSize:"clamp(44px, 5vw, 72px)", marginBottom:"18px", lineHeight:"1"}}>
+                    {current.icon}
+                  </div>
+                )}
+                {/* Title */}
+                <h1 style={{fontSize:"clamp(34px, 4vw, 60px)", fontWeight:"800", lineHeight:"1.15",
+                  marginBottom:"30px", color:"#fff"}}>
+                  {current.title}
+                </h1>
+                {/* Bullets */}
+                {Array.isArray(current.points) && current.points.length > 0 && (
+                  <ul style={{listStyle:"none", padding:0, margin:0,
+                    display:"flex", flexDirection:"column", gap:"16px"}}>
+                    {current.points.map((p, i) => (
+                      <li key={i} style={{display:"flex", alignItems:"flex-start", gap:"16px",
+                        fontSize:"clamp(18px, 1.7vw, 26px)", color:"rgba(255,255,255,0.95)",
+                        lineHeight:"1.55"}}>
+                        <span style={{display:"inline-block", width:"10px", height:"10px",
+                          borderRadius:"50%", background:"#fff", flexShrink:0, marginTop:"14px"}} />
+                        <span>{p}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {/* Takeaway */}
+                {current.takeaway && (
+                  <div style={{marginTop:"32px", padding:"20px 24px",
+                    background:"rgba(255,255,255,0.12)", borderRadius:"12px",
+                    borderLeft:"4px solid rgba(255,255,255,0.6)",
+                    fontSize:"clamp(16px, 1.5vw, 22px)", color:"#fff",
+                    fontStyle:"italic", lineHeight:"1.5"}}>
+                    {current.takeaway}
+                  </div>
+                )}
+              </div>
+
+              {/* Slide counter at bottom */}
+              <div style={{position:"absolute", bottom:"30px", right:"40px",
+                fontSize:"14px", color:"rgba(255,255,255,0.5)", fontWeight:"700",
+                letterSpacing:"2px"}}>
+                {idx + 1} / {slidesArr.length}
+              </div>
+
+              {/* Herbalife logo — subtle, bottom-left corner */}
+              <img
+                src="/herbalife-logo-white.png"
+                alt="Herbalife"
+                style={{position:"absolute", bottom:"24px", left:"40px",
+                  height:"clamp(28px, 2.5vw, 42px)", opacity:0.55,
+                  pointerEvents:"none"}}
+              />
+            </div>
+          );
+        }
+
+        // ── Counter mode (default) ──
         return (
           <div style={{
             minHeight:"100vh",width:"100%",
@@ -2217,6 +2403,15 @@ ${questionBlocks}`;
                 background:"#27ae60",animation:"liveDot 1.5s ease-in-out infinite"}} />
               Updating live
             </div>
+
+            {/* Herbalife logo — subtle, bottom-left corner */}
+            <img
+              src="/herbalife-logo-white.png"
+              alt="Herbalife"
+              style={{position:"absolute", bottom:"32px", left:"40px",
+                height:"clamp(28px, 2.5vw, 40px)", opacity:0.5,
+                pointerEvents:"none"}}
+            />
 
             <style>{`
               @keyframes liveCountPulse {
@@ -2859,17 +3054,61 @@ ${questionBlocks}`;
                     <div style={{...card,marginBottom:"24px"}}>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"16px",paddingBottom:"14px",borderBottom:`2px solid ${LG}`,gap:"12px",flexWrap:"wrap"}}>
                         <span style={{fontSize:"14px",fontWeight:"700",color:DG}}>📊 {slides.presentationTitle}</span>
-                        <div style={{display:"flex",alignItems:"center",gap:"12px"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap"}}>
                           <button onClick={downloadPPTX} style={{
                             padding:"7px 14px",borderRadius:"8px",fontSize:"11px",fontWeight:"700",
                             cursor:"pointer",border:`2px solid ${G}`,background:"#fff",color:DG,
                             display:"flex",alignItems:"center",gap:"6px"}}>
                             ⬇ Download .pptx
                           </button>
+                          {/* Push to /live screen */}
+                          {liveMode === "presentation" ? (
+                            <button onClick={showCounterOnLive} style={{
+                              padding:"7px 14px",borderRadius:"8px",fontSize:"11px",fontWeight:"700",
+                              cursor:"pointer",border:`2px solid #c78a00`,background:"#fff8e6",color:"#8a5a00",
+                              display:"flex",alignItems:"center",gap:"6px"}}
+                              title="Stop showing the presentation on /live and go back to the response counter">
+                              ← Back to counter
+                            </button>
+                          ) : (
+                            <button onClick={pushPresentationToLive} style={{
+                              padding:"7px 14px",borderRadius:"8px",fontSize:"11px",fontWeight:"700",
+                              cursor:"pointer",border:`2px solid ${DG}`,background:DG,color:"#fff",
+                              display:"flex",alignItems:"center",gap:"6px"}}
+                              title="Push these slides to the /live projection screen, starting at slide 1">
+                              🖥️ Show on /live
+                            </button>
+                          )}
                           <span style={{fontSize:"11px",color:"#7aaa88"}}>{slides.slides.length - hiddenSlides.size} / {slides.slides.length} slides visible</span>
                         </div>
                       </div>
-                      {/* Navigation */}
+
+                      {/* If we're projecting, show a banner with live navigation */}
+                      {liveMode === "presentation" && liveSlides?.slides && (
+                        <div style={{padding:"10px 14px",background:"#fff8e6",border:`2px solid #f0c14b`,
+                          borderRadius:"10px",marginBottom:"14px",display:"flex",alignItems:"center",
+                          justifyContent:"space-between",gap:"10px",flexWrap:"wrap"}}>
+                          <span style={{fontSize:"12px",fontWeight:"700",color:"#8a5a00"}}>
+                            🔴 LIVE on /live screen — slide {liveSlideIdx + 1} of {liveSlides.slides.length}
+                          </span>
+                          <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+                            <button onClick={()=>goLiveSlide(liveSlideIdx - 1)}
+                              disabled={liveSlideIdx <= 0}
+                              style={{width:"32px",height:"32px",background:"#fff",border:`2px solid #f0c14b`,
+                                borderRadius:"7px",color:"#8a5a00",fontSize:"15px",fontWeight:"700",
+                                cursor:liveSlideIdx<=0?"not-allowed":"pointer",
+                                opacity:liveSlideIdx<=0?.4:1}}>‹</button>
+                            <button onClick={()=>goLiveSlide(liveSlideIdx + 1)}
+                              disabled={liveSlideIdx >= (liveSlides.slides.length - 1)}
+                              style={{width:"32px",height:"32px",background:"#fff",border:`2px solid #f0c14b`,
+                                borderRadius:"7px",color:"#8a5a00",fontSize:"15px",fontWeight:"700",
+                                cursor:liveSlideIdx>=(liveSlides.slides.length-1)?"not-allowed":"pointer",
+                                opacity:liveSlideIdx>=(liveSlides.slides.length-1)?.4:1}}>›</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Navigation (admin preview, separate from /live) */}
                       <div style={{display:"flex",alignItems:"center",gap:"12px",marginBottom:"16px"}}>
                         <button onClick={()=>goSlide(-1)} disabled={visibleSlides.indexOf(slideIdx)<=0}
                           style={{width:"36px",height:"36px",background:LG,border:`2px solid ${BD}`,borderRadius:"8px",
