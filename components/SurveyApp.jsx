@@ -173,6 +173,10 @@ export default function App() {
   const pollRefHandle = useRef(null);
   const answeredQIdRef = useRef(null);
   const sessionWasOpenRef = useRef(false);
+  // Once a participant submits in form mode, this flag stays true so the
+  // polling keeps them on the thank-you screen instead of bouncing them
+  // back to the form.
+  const hasSubmittedRef = useRef(false);
 
   const t       = UI[lang] || UI.en;
   const activeQs = questions.filter(q => q.active !== false);
@@ -459,6 +463,9 @@ Your job:
         throw new Error(errText || `HTTP ${res.status}`);
       }
       const data = await res.json();
+      // Mark this participant as having submitted so polling won't bounce
+      // them back to the form when the session keeps running.
+      hasSubmittedRef.current = true;
       // Move participant to thank-you screen
       setScreen("complete");
       // Push the new rows into local state so the admin sees them right away
@@ -490,6 +497,7 @@ Your job:
     setParticipantToken(null);
     answeredQIdRef.current = null;
     sessionWasOpenRef.current = false;
+    hasSubmittedRef.current = false;
     try { localStorage.removeItem("participant_token"); } catch {}
     if (pollRefHandle.current) { clearInterval(pollRefHandle.current); pollRefHandle.current = null; }
     setScreen("lang");
@@ -579,6 +587,11 @@ Your job:
         // Decide which screen the participant should see now
         if (sessionData.session_open) {
           sessionWasOpenRef.current = true;
+          // The participant already submitted in this session — leave them on
+          // the thank-you screen no matter what changes in the session.
+          if (hasSubmittedRef.current) {
+            return;
+          }
           // Already submitted? Stay on the thank-you screen.
           if (screen === "complete") {
             return;
