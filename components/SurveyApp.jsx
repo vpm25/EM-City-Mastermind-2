@@ -873,6 +873,22 @@ Your job:
     });
   };
 
+  // ── On mount: load the active session info ──
+  // This is needed for the lang screen title and the /live screen — both
+  // need to know which event session is currently active. Without this,
+  // participants would see a generic title until polling kicks in.
+  useEffect(() => {
+    fetch("/api/sessions")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          setSessions(data.sessions || []);
+          setActiveSessionId(data.activeSessionId);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // ── Poll responses every 5s when in admin mode ──
   useEffect(() => {
     if (screen !== "admin") return;
@@ -914,11 +930,24 @@ Your job:
     return () => clearInterval(interval);
   }, [screen]);
 
-  // ── Live projection screen: poll responses frequently for the counter ──
+  // ── Live projection screen: poll responses + active session name ──
   useEffect(() => {
     if (screen !== "live") return;
-    loadResponses(); // initial fetch
-    const interval = setInterval(loadResponses, 3000); // every 3s feels alive
+    const fetchAll = async () => {
+      // Responses (for the counter)
+      loadResponses();
+      // Active session info (for the title)
+      try {
+        const res = await fetch("/api/sessions");
+        if (res.ok) {
+          const data = await res.json();
+          setSessions(data.sessions || []);
+          setActiveSessionId(data.activeSessionId);
+        }
+      } catch {}
+    };
+    fetchAll(); // initial
+    const interval = setInterval(fetchAll, 3000); // every 3s feels alive
     return () => clearInterval(interval);
   }, [screen]);
 
@@ -2069,6 +2098,9 @@ ${block}`;
         const peopleCount = new Set(
           responses.map(r => r.participant_token).filter(Boolean)
         ).size;
+        // Pull the active session name (loaded by the live polling effect).
+        const activeSession = sessions.find(s => s.id === activeSessionId);
+        const eventName = activeSession?.name || "Live Session";
         return (
           <div style={{
             minHeight:"100vh",width:"100%",
@@ -2076,11 +2108,11 @@ ${block}`;
             display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
             padding:"40px 20px",fontFamily:"inherit",color:"#fff"}}>
 
-            {/* Top label */}
+            {/* Top label — uses the active session name */}
             <div style={{position:"absolute",top:"30px",left:"50%",transform:"translateX(-50%)",
-              fontSize:"14px",letterSpacing:"6px",textTransform:"uppercase",color:"#b4dcc3",fontWeight:"700",
-              whiteSpace:"nowrap"}}>
-              ✦ City Development Mastermind — Live ✦
+              fontSize:"clamp(13px, 1.3vw, 18px)",letterSpacing:"6px",textTransform:"uppercase",color:"#b4dcc3",fontWeight:"700",
+              whiteSpace:"nowrap",textAlign:"center",padding:"0 20px",maxWidth:"95vw",overflow:"hidden",textOverflow:"ellipsis"}}>
+              ✦ {eventName} — Live ✦
             </div>
 
             {/* The big counter */}
@@ -2141,11 +2173,45 @@ ${block}`;
                 letterSpacing:"2px",textTransform:"uppercase",marginBottom:"18px"}}>
                 🌍 Eurasian Markets
               </div>
-              <h1 style={{fontSize:"38px",fontWeight:"800",lineHeight:"1.1"}}>
-                City Development<br/><span style={{color:G}}>Mastermind Program</span>
-              </h1>
+              {/* Dynamic title — uses the active session name.
+                  Splits the name into two parts so we can apply the dual-color
+                  styling (dark green / bright green) just like the original. */}
+              {(() => {
+                const activeSession = sessions.find(s => s.id === activeSessionId);
+                const fullName = activeSession?.name || "City Development Mastermind Program";
+                const trimmed = fullName.trim();
+                const words = trimmed.split(/\s+/);
+                let firstPart, secondPart;
+                // If the whole name is short (≤ ~16 chars), keep it on a single
+                // line so titles like "PT & MT" or "CDMM 2026" don't get awkwardly broken.
+                if (trimmed.length <= 16 || words.length === 1) {
+                  firstPart = "";
+                  secondPart = trimmed;
+                } else {
+                  // Multi-word names: find the split point closest to the middle by char count
+                  const total = trimmed.length;
+                  let bestSplit = 1;
+                  let bestDiff = Infinity;
+                  for (let i = 1; i < words.length; i++) {
+                    const left = words.slice(0, i).join(" ").length;
+                    const right = total - left - 1;
+                    const diff = Math.abs(left - right);
+                    if (diff < bestDiff) { bestDiff = diff; bestSplit = i; }
+                  }
+                  firstPart = words.slice(0, bestSplit).join(" ");
+                  secondPart = words.slice(bestSplit).join(" ");
+                }
+                return (
+                  <h1 style={{
+                    fontSize: trimmed.length > 30 ? "30px" : (trimmed.length > 20 ? "34px" : "38px"),
+                    fontWeight:"800", lineHeight:"1.1"}}>
+                    {firstPart && <>{firstPart}<br/></>}
+                    <span style={{color:G}}>{secondPart}</span>
+                  </h1>
+                );
+              })()}
               <p style={{marginTop:"10px",color:"#7aaa88",fontSize:"14px"}}>
-                Eurasian Markets · Select your language
+                Select your language
               </p>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"12px"}}>
