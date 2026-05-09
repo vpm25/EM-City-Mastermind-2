@@ -95,7 +95,7 @@ function Slide({ data, idx, total }) {
       <span style={{ fontSize:"40px", marginBottom:"14px", display:"block" }}>{data.icon}</span>
       <h2 style={{ fontSize:"26px", fontWeight:"800", color:"#fff", marginBottom:"18px", lineHeight:"1.25" }}>{data.title}</h2>
       <ul style={{ listStyle:"none", display:"flex", flexDirection:"column", gap:"12px" }}>
-        {data.points.map((p,i) => (
+        {(data.points || []).map((p,i) => (
           <li key={i} style={{ display:"flex", alignItems:"flex-start", gap:"10px",
             fontSize:"14px", color:"rgba(255,255,255,.9)", lineHeight:"1.65" }}>
             <span style={{ width:"6px",height:"6px",borderRadius:"50%",background:"#fff",
@@ -103,6 +103,13 @@ function Slide({ data, idx, total }) {
           </li>
         ))}
       </ul>
+      {data.takeaway && (
+        <div style={{ marginTop:"22px", padding:"14px 18px", background:"rgba(255,255,255,.15)",
+          borderRadius:"10px", borderLeft:"3px solid rgba(255,255,255,.6)",
+          fontSize:"13px", color:"#fff", fontStyle:"italic", lineHeight:"1.55" }}>
+          {data.takeaway}
+        </div>
+      )}
       <span style={{ position:"absolute",bottom:"24px",right:"28px",fontSize:"10px",
         color:"rgba(255,255,255,.3)",fontWeight:"700" }}>{idx+1}/{total}</span>
     </div>
@@ -1384,10 +1391,19 @@ ${ans}`;
           slide.addText(
             s.points.map(p => ({ text: p, options: { bullet: { code: "2022" }, paraSpaceAfter: 12 } })),
             {
-              x: 0.5, y: 3.1, w: 12.3, h: 4,
+              x: 0.5, y: 3.1, w: 12.3, h: s.takeaway ? 3 : 4,
               fontSize: 16, color: "FFFFFF", fontFace: "Arial", valign: "top",
             }
           );
+        }
+        // Takeaway box at the bottom (italic, on lighter background)
+        if (s.takeaway) {
+          slide.addText(s.takeaway, {
+            x: 0.5, y: 6.2, w: 12.3, h: 0.7,
+            fontSize: 14, italic: true, color: "FFFFFF", fontFace: "Arial",
+            fill: { color: "2D7A47" }, // slightly lighter green panel
+            margin: 0.2,
+          });
         }
         // Slide number
         slide.addText(`${i + 1}/${visible.length}`, {
@@ -1961,9 +1977,9 @@ ${block}`;
     if (!responses.length) return;
     setLoadingPres(true); setSlides(null); setSlideIdx(0); setHiddenSlides(new Set());
 
-    // Use the union of currently-active questions AND any question that has at least
-    // one answer. This way deactivating a question after the fact doesn't erase it
-    // from the presentation.
+    // Use the union of currently-active questions AND any question that has
+    // at least one answer. This way deactivating a question after the fact
+    // doesn't erase it from the presentation.
     const answeredQIds = new Set(
       participantGroups.flatMap(g => Object.keys(g.answersByQId).map(Number))
     );
@@ -1971,90 +1987,104 @@ ${block}`;
       q.active !== false || answeredQIds.has(q.id)
     );
 
-    const block = participantGroups.map(g =>
-      `Participant #${g.num} (${g.langName}):\n`+
-      presQs.map((q,i)=>`Q${i+1}: ${q.en}\nAnswer: ${answerFor(g, q, i)||"(no answer)"}`).join("\n")
-    ).join("\n\n");
-
     const nP = participantGroups.length;
     const nQ = presQs.length;
     const nResp = responses.length;
-    const expectedSlides = 1 + (nQ * 2); // overview + (insights+summary per question)
+    // 1 intro slide + 1 slide per question + 1 closing slide
+    const expectedSlides = 2 + nQ;
 
-    const prompt = `You are a world-class strategic executive consultant with 20+ years of experience analyzing organizational surveys for Fortune 500 leadership teams. You specialize in turning raw qualitative feedback into board-ready strategic narratives that drive decisions.
+    // Active session name gives the presentation its title
+    const activeSession = sessions.find(s => s.id === activeSessionId);
+    const eventName = activeSession?.name || "Survey Results";
 
-You are now being asked to create a presentation from REAL survey data.
+    // For each question, build a focused block of its responses + the team's
+    // custom analysis instruction (if they wrote one for that question).
+    const questionBlocks = presQs.map((q, i) => {
+      const qResps = participantGroups
+        .map(g => ({ g, answer: answerFor(g, q, i) }))
+        .filter(({ answer }) => answer && String(answer).trim());
+
+      const responsesText = qResps.length
+        ? qResps.map(({g, answer}) => `- Participant #${g.num} (${g.langName}): ${answer}`).join("\n")
+        : "(no responses)";
+
+      const customInstr = (q.analysisInstruction || "").trim();
+      const instructionLine = customInstr
+        ? `ANALYSIS INSTRUCTION (the team wrote this — follow it carefully):\n${customInstr}`
+        : `ANALYSIS INSTRUCTION (no specific instruction — produce a strategic 3-5 bullet summary highlighting the main themes, patterns, and any notable contrasts):`;
+
+      return `═══════════════════════════════════════════════════
+QUESTION ${i+1}: "${q.en}"
+${instructionLine}
+
+RESPONSES (${qResps.length} of ${nP}):
+${responsesText}`;
+    }).join("\n\n");
+
+    const prompt = `You are a world-class strategic consultant creating a beautiful, audience-ready presentation. The presentation will be projected LIVE to the people who just answered the survey, so it must be visually engaging, easy to scan, and impactful.
 
 ═══════════════════════════════════════════════════════
 GROUNDING RULES — ABSOLUTE
 ═══════════════════════════════════════════════════════
-- Every claim, quote, theme, percentage, count, or segmentation MUST be derivable from the responses below.
-- DO NOT invent: numbers, percentages, demographics, cohort sizes, tenure groups, departments, regions, comparisons between subgroups, or any detail that is not explicitly in the data.
-- Quantitative claims must reflect actual counts. When you CAN count something precisely (e.g., "leadership" appears in 4 out of 7 responses), state the exact number. When you CANNOT count precisely (themes that overlap, fuzzy boundaries, vague references), describe it qualitatively ("most participants", "one respondent", "a few", "the majority"). Never use approximate or estimated numbers — be exact or be qualitative.
-- DO NOT extrapolate. If a response says "leadership", you cannot claim it referred to "first-time leadership roles" or "leadership development programs" unless those exact phrases are in the responses.
-- If the data does not support a strategic claim, do not make one. Hedged truth beats confident fiction. Acknowledging uncertainty is what makes the analysis trustworthy.
+- Every claim, quote, theme, count, or comparison MUST be derivable from the responses.
+- DO NOT invent: numbers, percentages, demographics, segments, regions, departments — anything not explicitly in the data.
+- Quantitative claims must reflect ACTUAL counts. If you can count precisely, give the exact number. If not, describe qualitatively ("most participants", "a few", "one respondent"). Never approximate.
+- DO NOT extrapolate. Stick to what people actually said.
+- If the data is thin or ambiguous for a question, say so honestly. Hedged truth beats confident fiction.
 
 ${MULTILINGUAL_HANDLING}
-DATA SUMMARY (use these exact numbers, do not change them):
-- ${nP} participant${nP===1?"":"s"} took part in the survey
+
+═══════════════════════════════════════════════════════
+DATA SUMMARY (use these exact numbers)
+═══════════════════════════════════════════════════════
+- Event: ${eventName}
+- ${nP} participant${nP===1?"":"s"} answered the survey
 - ${nQ} question${nQ===1?"":"s"} were asked
-- ${nResp} individual response${nResp===1?"":"s"} were collected in total
-- A "response" is one answer to one question. With ${nP} participant${nP===1?"":"s"} answering ${nQ} question${nQ===1?"":"s"}, the maximum possible would be ${nP*nQ} responses; you got ${nResp}.
+- ${nResp} individual response${nResp===1?"":"s"} were collected total
 
-REQUIRED STRUCTURE — generate EXACTLY ${expectedSlides} slide${expectedSlides===1?"":"s"} in this order:
-1. ONE "OVERVIEW" slide summarizing the survey at a high level. Mention the number of participants and questions truthfully. Do NOT say things like "0 questions were formally answered" — every question listed below was asked, and the responses are the data you must summarize.
+═══════════════════════════════════════════════════════
+STRUCTURE — generate EXACTLY ${expectedSlides} slide${expectedSlides===1?"":"s"} in this order
+═══════════════════════════════════════════════════════
 
-For each question, generate TWO DISTINCT slides. The two slides must NOT repeat each other:
+1. OPENING slide — "${eventName} Results"
+   Welcoming, sets the stage. Mentions ${nP} participants and ${nQ} questions truthfully. Energizes the audience.
 
-INSIGHTS slide = ANALYTICAL. Focus on patterns, frequency, distribution, and what stands out across the dataset.
+${presQs.map((q, i) => `${i+2}. QUESTION ${i+1} slide — for: "${q.en}"
+   Follow the analysis instruction provided for this specific question.
+   Make it visually clean: a clear title (≤8 words), 3-5 punchy bullet points, and 1 brief takeaway sentence.
+   Quote participants where it adds power — in their original language with English translation in parentheses.`).join("\n\n")}
 
-EXAMPLES OF STYLE (these are illustrations of HOW to write — DO NOT borrow their content; only write claims that are actually in the data):
-  • One theme dominates the responses — only claim the theme if it actually does dominate
-  • A small but consistent minority raised concerns about X — only if X actually was raised
-  • Three distinct themes emerged — only if there genuinely are three
+${expectedSlides}. CLOSING slide — "Thank you"
+   A short, sincere closing that thanks participants and acknowledges the value of their input. Optional: one inspiring sentence about what comes next.
 
-DO NOT produce content like:
-  ✗ "Participants in their first year said X; those past year three said Y" — UNLESS the data actually distinguishes these groups (it usually does NOT)
-  ✗ "64% said X" — UNLESS you literally counted X and the percentage is accurate
-  ✗ "Cross-regional roles flagged Y" — UNLESS the data says who is in which role
-  ✗ "Responses in Japanese were shorter than English" (linguistic trivia, not strategic)
-  ✗ "Most participants gave a one-word answer" (format observation, not content)
-  ✗ "Participants varied in their responses" (vacuous)
+═══════════════════════════════════════════════════════
+STYLE FOR LIVE AUDIENCE PROJECTION
+═══════════════════════════════════════════════════════
+- Title of each slide: short, bold, memorable. ≤8 words.
+- Bullets: punchy, scannable, ≤15 words each. Avoid corporate jargon.
+- Each question slide should have 3-5 bullets MAX. Less is more on stage.
+- Use plain English, accessible to a multilingual audience.
+- A "takeaway" line at the end of each question slide that distills the slide into one sentence.
+- For quotes, use the format: "phrase in original language" (English translation).
 
-Insight bullets should help leadership make decisions. Each bullet should answer "so what?".
+═══════════════════════════════════════════════════════
+RETURN FORMAT — strict JSON only, no markdown, no backticks, no commentary
+═══════════════════════════════════════════════════════
+{
+  "presentationTitle": "${eventName} Results",
+  "slides": [
+    {"category":"OPENING","icon":"✨","title":"...","points":["...","..."],"takeaway":"..."},
+    {"category":"QUESTION 1","icon":"💬","title":"...","points":["...","..."],"takeaway":"..."},
+    {"category":"CLOSING","icon":"🙏","title":"Thank you","points":["..."],"takeaway":""}
+  ]
+}
 
-SUMMARY slide = NARRATIVE. Synthesize what participants actually said in flowing, descriptive sentences. Use specific words and phrases from the actual responses where possible.
+═══════════════════════════════════════════════════════
+ACTUAL SURVEY DATA — analyze this
+═══════════════════════════════════════════════════════
+${questionBlocks}`;
 
-EXAMPLES OF STYLE (the form, not the content):
-  • A flowing sentence describing what participants spoke about, anchored in real phrases from their responses
-  • A second sentence drawing connections between what was said, without imposing meaning that isn't there
-
-The two slides answer different questions:
-- INSIGHTS answers: "What does the data show that we should act on?"
-- SUMMARY answers: "What did people say, in their own voice?"
-
-${presQs.map((q,i)=>`${i*2+2}. "Q${i+1} INSIGHTS" slide for: "${q.en}"
-${i*2+3}. "Q${i+1} SUMMARY" slide for: "${q.en}"`).join("\n")}
-
-RULES:
-- Every quote MUST be a near-verbatim phrase from the responses. Do not paraphrase quotes.
-- If only ${nP} participant${nP===1?"":"s"} answered, say "${nP}", not a made-up bigger number.
-- If a specific question received no answer from anyone, you can note that for that question — but do not generalise it to "no questions were answered".
-- 3-5 bullet points per slide. Each bullet must be defensible by pointing to specific responses.
-- Do NOT make INSIGHTS and SUMMARY slides repeat each other. They must offer different angles.
-
-Return ONLY valid JSON (no markdown, no backticks, no commentary):
-{"presentationTitle":"City Development Mastermind Program Results","slides":[
-  {"category":"OVERVIEW","icon":"🌏","title":"...","points":["...","..."]},
-  {"category":"Q1 INSIGHTS","icon":"💡","title":"...","points":["...","..."]},
-  {"category":"Q1 SUMMARY","icon":"📝","title":"...","points":["...","..."]}
-]}
-
-ACTUAL SURVEY RESPONSES:
-${block}`;
     try {
-      // Allow plenty of room: 11 slides at ~250 tokens each = ~2700 tokens, but
-      // with rich INSIGHTS/SUMMARY for many questions we need headroom.
       const raw = await callAI(prompt, 8000);
       const m = raw.match(/\{[\s\S]*\}/);
       if (!m) throw new Error("No JSON in response");
@@ -2902,105 +2932,9 @@ ${block}`;
                               {currentQId!=null&&currentQId===q.id?"⏹":"▶ Activate"}
                             </button>
                           )}
-                          <button onClick={()=>generateQSummary(q)} disabled={loadingSum===q.id}
-                              style={{padding:"9px 14px",borderRadius:"9px",fontSize:"12px",fontWeight:"700",
-                                cursor:loadingSum===q.id?"not-allowed":"pointer",border:`2px solid ${BD}`,
-                                background:"#fff",color:DG,flexShrink:0,opacity:loadingSum===q.id?.6:1}}>
-                              {loadingSum===q.id?"⏳ Summarizing...":qSummaries[q.id]?"🔄 Re-summarize":"Summarize"}
-                            </button>
-                          <button onClick={()=>toggleCustomEditor(q)} disabled={loadingCustom===q.id}
-                              title="Run a one-time custom analysis"
-                              style={{padding:"9px 12px",borderRadius:"9px",fontSize:"12px",fontWeight:"700",
-                                cursor:loadingCustom===q.id?"not-allowed":"pointer",border:`2px solid ${BD}`,
-                                background:customOpen.has(q.id)?LG:"#fff",color:DG,flexShrink:0,opacity:loadingCustom===q.id?.6:1}}>
-                              {loadingCustom===q.id?"⏳":"⚡ Custom"}
-                            </button>
-                          <button onClick={()=>toggleInstrExpand(q)}
-                              title={q.analysisInstruction ? "Edit the saved instruction that guides Summarize" : "Save a permanent instruction that guides Summarize"}
-                              style={{padding:"9px 12px",borderRadius:"9px",fontSize:"12px",fontWeight:"700",
-                                cursor:"pointer",border:`2px solid ${q.analysisInstruction?G:BD}`,
-                                background:expandedInstr.has(q.id)?LG:"#fff",color:DG,flexShrink:0}}>
-                              🧠 Default {q.analysisInstruction ? "✓" : ""}
-                            </button>
                           </div>
                         </div>
-                        {/* Default (saved) analysis instruction editor */}
-                        {expandedInstr.has(q.id) && (
-                          <div style={{marginTop:"12px",padding:"14px",background:"#f4faf6",borderRadius:"10px",border:`1px solid ${G}`}}>
-                            <div style={{fontSize:"10px",fontWeight:"700",color:DG,marginBottom:"6px",letterSpacing:"1.5px",textTransform:"uppercase"}}>
-                              🧠 Default analysis instruction (saved)
-                            </div>
-                            <p style={{fontSize:"11px",color:"#7aaa88",margin:"0 0 10px",lineHeight:"1.5"}}>
-                              When you click <strong>Summarize</strong>, the AI will follow this instruction. Saved permanently. Leave empty to use the generic strategic analysis.
-                            </p>
-                            <textarea
-                              value={instrDraft[q.id] ?? ""}
-                              onChange={e=>setInstrDraft(d=>({...d, [q.id]: e.target.value}))}
-                              rows={3}
-                              placeholder="e.g., Cluster the questions by topic. Show the top 10 most repeated, with counts for each."
-                              style={{width:"100%",padding:"10px",border:`1px solid ${BD}`,borderRadius:"8px",
-                                fontSize:"13px",resize:"vertical",outline:"none",lineHeight:"1.5",fontFamily:"inherit",boxSizing:"border-box"}}
-                            />
-                            <div style={{display:"flex",gap:"6px",marginTop:"10px"}}>
-                              <SmallBtn onClick={()=>saveInstr(q.id)} color="green">💾 Save</SmallBtn>
-                              <SmallBtn onClick={()=>toggleInstrExpand(q)} color="white">Cancel</SmallBtn>
-                              {q.analysisInstruction && (
-                                <SmallBtn onClick={()=>{ setInstrDraft(d=>({...d, [q.id]: ""})); saveInstr(q.id); }} color="white">
-                                  Clear
-                                </SmallBtn>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                        {/* Ad-hoc custom analysis editor */}
-                        {customOpen.has(q.id) && (
-                          <div style={{marginTop:"12px",padding:"14px",background:LG,borderRadius:"10px",border:`1px solid ${BD}`}}>
-                            <div style={{fontSize:"10px",fontWeight:"700",color:DG,marginBottom:"6px",letterSpacing:"1.5px",textTransform:"uppercase"}}>
-                              ⚡ One-time custom analysis
-                            </div>
-                            <p style={{fontSize:"11px",color:"#7aaa88",margin:"0 0 10px",lineHeight:"1.5"}}>
-                              Write an instruction and the AI will analyze this question's responses accordingly. Not saved — useful for exploring different angles without changing the question.
-                            </p>
-                            <textarea
-                              value={customDraft[q.id] ?? ""}
-                              onChange={e=>setCustomDraft(d=>({...d,[q.id]:e.target.value}))}
-                              rows={3}
-                              placeholder="e.g., List the top 10 most repeated questions, with a count for each"
-                              style={{width:"100%",padding:"10px",border:`1px solid ${BD}`,borderRadius:"8px",
-                                fontSize:"13px",resize:"vertical",outline:"none",lineHeight:"1.5",fontFamily:"inherit",boxSizing:"border-box"}}
-                            />
-                            <div style={{display:"flex",gap:"6px",marginTop:"10px"}}>
-                              <SmallBtn onClick={()=>generateCustomAnalysis(q)}
-                                disabled={loadingCustom===q.id || !(customDraft[q.id]||"").trim()}
-                                color="green">
-                                {loadingCustom===q.id?"⏳ Running...":"▶ Run analysis"}
-                              </SmallBtn>
-                              <SmallBtn onClick={()=>toggleCustomEditor(q)} color="white">Cancel</SmallBtn>
-                            </div>
-                          </div>
-                        )}
                       </div>
-
-                      {/* AI Summary */}
-                      {qSummaries[q.id] && (
-                        <div style={{background:LG,borderRadius:"10px",padding:"14px 16px",marginBottom:"16px",
-                          border:`2px solid ${BD}`,fontSize:"14px",color:"#3a5a46",lineHeight:"1.8",whiteSpace:"pre-wrap"}}>
-                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"8px"}}>
-                            <span style={{fontSize:"10px",fontWeight:"700",color:G,letterSpacing:"1px",textTransform:"uppercase"}}>AI Summary</span>
-                            <button onClick={()=>{
-                              navigator.clipboard.writeText(qSummaries[q.id]).then(()=>{
-                                setCopiedSum(q.id); setTimeout(()=>setCopiedSum(null),2000);
-                              });
-                            }} style={{padding:"3px 10px",borderRadius:"6px",fontSize:"11px",fontWeight:"600",
-                              cursor:"pointer",border:`2px solid ${copiedSum===q.id?"#27ae60":BD}`,
-                              background:copiedSum===q.id?"#d5f5e3":"#fff",
-                              color:copiedSum===q.id?"#1a6b3a":"#7aaa88"}}>
-                              {copiedSum===q.id?"✓ Copied!":"📋 Copy"}
-                            </button>
-                          </div>
-                          {qSummaries[q.id]}
-                        </div>
-                      )}
 
                       {/* Answers — collapsible */}
                       {!collapsedQs.has(q.id) && (
@@ -3088,6 +3022,47 @@ ${block}`;
                                 <span key={j} style={{marginRight:"8px"}}>{s?.slice(0,20)}…</span>
                               ))}
                             </p>
+                            {/* Analysis instruction toggle — your team fills this in before the event.
+                                Used by the final "Generate AI Presentation" button to tailor the
+                                analysis for each question. */}
+                            <div style={{marginTop:"10px"}}>
+                              <button onClick={()=>toggleInstrExpand(q)}
+                                style={{background:"transparent",border:"none",padding:0,cursor:"pointer",
+                                  fontSize:"11px",color:q.analysisInstruction?G:"#7aaa88",fontWeight:"500",
+                                  textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:"3px"}}>
+                                {q.analysisInstruction
+                                  ? `🧠 Analysis prompt set ✓  ${expandedInstr.has(q.id) ? "(hide)" : "(view / edit)"}`
+                                  : `🧠 + Add analysis prompt`}
+                              </button>
+                            </div>
+                            {expandedInstr.has(q.id) && (
+                              <div style={{marginTop:"10px",padding:"12px",background:"#f4faf6",borderRadius:"8px",border:`1px solid ${G}`}}>
+                                <div style={{fontSize:"10px",fontWeight:"700",color:DG,marginBottom:"6px",letterSpacing:"1.5px",textTransform:"uppercase"}}>
+                                  🧠 Analysis instruction for the final presentation
+                                </div>
+                                <p style={{fontSize:"11px",color:"#7aaa88",margin:"0 0 8px",lineHeight:"1.5"}}>
+                                  This instruction tells the AI how to summarize this question's responses on its slide of the final presentation. Leave empty to use a generic strategic summary.
+                                </p>
+                                <textarea
+                                  value={instrDraft[q.id] ?? ""}
+                                  onChange={e=>setInstrDraft(d=>({...d, [q.id]: e.target.value}))}
+                                  rows={4}
+                                  placeholder="e.g., List the top 5 themes participants mentioned, with a count of how many people raised each."
+                                  style={{width:"100%",padding:"10px",border:`1px solid ${BD}`,borderRadius:"6px",
+                                    fontSize:"12px",resize:"vertical",outline:"none",lineHeight:"1.5",fontFamily:"inherit",
+                                    boxSizing:"border-box"}}
+                                />
+                                <div style={{display:"flex",gap:"6px",marginTop:"8px"}}>
+                                  <SmallBtn onClick={()=>saveInstr(q.id)} color="green">💾 Save</SmallBtn>
+                                  <SmallBtn onClick={()=>toggleInstrExpand(q)} color="white">Cancel</SmallBtn>
+                                  {q.analysisInstruction && (
+                                    <SmallBtn onClick={()=>{ setInstrDraft(d=>({...d, [q.id]: ""})); saveInstr(q.id); }} color="white">
+                                      Clear
+                                    </SmallBtn>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
