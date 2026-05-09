@@ -2023,27 +2023,48 @@ ${block}`;
 
       const customInstr = (q.analysisInstruction || "").trim();
       const instructionLine = customInstr
-        ? `ANALYSIS INSTRUCTION (the team wrote this — follow it carefully):\n${customInstr}`
-        : `ANALYSIS INSTRUCTION (no specific instruction — produce a strategic 3-5 bullet summary highlighting the main themes, patterns, and any notable contrasts):`;
+        ? `═══ TEAM'S ANALYSIS INSTRUCTION FOR THIS QUESTION ═══
+${customInstr}
+═════════════════════════════════════════════════════
+The instruction above is the SOURCE OF TRUTH for the content of this question's slide.
+You MUST cover everything the team asked for. Do not omit, abbreviate, or substitute any part of it.
+You may split the content across multiple bullets or sub-bullets to make it look clean,
+but every piece of information they requested must appear on the slide.`
+        : `═══ ANALYSIS INSTRUCTION ═══
+No specific instruction provided. Produce a strategic 3-5 bullet summary highlighting the main themes, patterns, and any notable contrasts in the responses.`;
 
       return `═══════════════════════════════════════════════════
 QUESTION ${i+1}: "${q.en}"
+
 ${instructionLine}
 
 RESPONSES (${qResps.length} of ${nP}):
 ${responsesText}`;
     }).join("\n\n");
 
-    const prompt = `You are a world-class strategic consultant creating a beautiful, audience-ready presentation. The presentation will be projected LIVE to the people who just answered the survey, so it must be visually engaging, easy to scan, and impactful.
+    const prompt = `You are a world-class strategic consultant creating a beautiful, audience-ready presentation. The presentation will be projected LIVE to the people who just answered the survey.
+
+═══════════════════════════════════════════════════════
+HOW TO READ THIS PROMPT
+═══════════════════════════════════════════════════════
+For each question slide, the team has either:
+(a) provided a SPECIFIC ANALYSIS INSTRUCTION — in which case THE INSTRUCTION DEFINES THE CONTENT. You produce exactly what they asked for, in full. You decide ONLY how to lay it out visually.
+(b) provided NO instruction — in which case YOU decide content (per the default summary instructions).
+
+The split is sacred:
+- CONTENT belongs to the team (when they wrote an instruction).
+- VISUAL FORMAT belongs to you.
+
+Do NOT compress the team's instruction into "executive-friendly bullets" if they asked for "top 10 with counts and quotes" — that would be 10 items with their counts and their quotes. You may use sub-bullets, multi-line items, or anything that fits the slide canvas; you may not drop or summarize what they explicitly asked for.
 
 ═══════════════════════════════════════════════════════
 GROUNDING RULES — ABSOLUTE
 ═══════════════════════════════════════════════════════
 - Every claim, quote, theme, count, or comparison MUST be derivable from the responses.
-- DO NOT invent: numbers, percentages, demographics, segments, regions, departments — anything not explicitly in the data.
-- Quantitative claims must reflect ACTUAL counts. If you can count precisely, give the exact number. If not, describe qualitatively ("most participants", "a few", "one respondent"). Never approximate.
+- DO NOT invent: numbers, percentages, demographics, segments, regions, departments — anything not in the data.
+- Quantitative claims must be exact counts. If you can't count precisely, describe qualitatively ("most", "a few", "one"). Never approximate.
 - DO NOT extrapolate. Stick to what people actually said.
-- If the data is thin or ambiguous for a question, say so honestly. Hedged truth beats confident fiction.
+- If the data can't support what the instruction asks for (e.g., team asks for "top 10" but only 5 themes exist), provide what the data DOES support and note the limitation honestly.
 
 ${MULTILINGUAL_HANDLING}
 
@@ -2051,34 +2072,39 @@ ${MULTILINGUAL_HANDLING}
 DATA SUMMARY (use these exact numbers)
 ═══════════════════════════════════════════════════════
 - Event: ${eventName}
-- ${nP} participant${nP===1?"":"s"} answered the survey
+- ${nP} participant${nP===1?"":"s"} answered
 - ${nQ} question${nQ===1?"":"s"} were asked
-- ${nResp} individual response${nResp===1?"":"s"} were collected total
+- ${nResp} individual response${nResp===1?"":"s"} collected total
 
 ═══════════════════════════════════════════════════════
 STRUCTURE — generate EXACTLY ${expectedSlides} slide${expectedSlides===1?"":"s"} in this order
 ═══════════════════════════════════════════════════════
 
-1. OPENING slide — "${eventName} Results"
-   Welcoming, sets the stage. Mentions ${nP} participants and ${nQ} questions truthfully. Energizes the audience.
+SLIDE 1 — OPENING
+A welcoming opener for "${eventName} Results". Mention ${nP} participants and ${nQ} questions truthfully. Energize the audience. 2-3 short bullets, one inspiring takeaway.
 
-${presQs.map((q, i) => `${i+2}. QUESTION ${i+1} slide — for: "${q.en}"
-   Follow the analysis instruction provided for this specific question.
-   Make it visually clean: a clear title (≤8 words), 3-5 punchy bullet points, and 1 brief takeaway sentence.
-   Quote participants where it adds power — in their original language with English translation in parentheses.`).join("\n\n")}
+${presQs.map((q, i) => `SLIDE ${i+2} — QUESTION ${i+1}
+For question: "${q.en}"
 
-${expectedSlides}. CLOSING slide — "Thank you"
-   A short, sincere closing that thanks participants and acknowledges the value of their input. Optional: one inspiring sentence about what comes next.
+Apply the team's instruction (or default) for this question.
+- If they asked for a list of N items: deliver N items.
+- If they asked for counts: include the counts.
+- If they asked for quotes: include the quotes (original language + English translation).
+- If they asked for a specific structure: follow it.
+You may split long content across the bullets and sub-points naturally. Use the "title" field for a clean slide heading and the "takeaway" field for the team's headline insight if appropriate.`).join("\n\n")}
+
+SLIDE ${expectedSlides} — CLOSING
+A short, sincere closing thanking participants and acknowledging the value of their input. 2-3 bullets, one inspiring closing line as takeaway.
 
 ═══════════════════════════════════════════════════════
-STYLE FOR LIVE AUDIENCE PROJECTION
+VISUAL FORMAT GUIDELINES — your domain
 ═══════════════════════════════════════════════════════
-- Title of each slide: short, bold, memorable. ≤8 words.
-- Bullets: punchy, scannable, ≤15 words each. Avoid corporate jargon.
-- Each question slide should have 3-5 bullets MAX. Less is more on stage.
-- Use plain English, accessible to a multilingual audience.
-- A "takeaway" line at the end of each question slide that distills the slide into one sentence.
-- For quotes, use the format: "phrase in original language" (English translation).
+- TITLE: short and clear (≤10 words). Reflects the slide's content.
+- BULLETS (points array): each one self-contained. Length adapts to content — short and punchy when the team asked for themes, longer when they asked for items with quotes.
+- Number of bullets: AS MANY AS THE TEAM'S INSTRUCTION REQUIRES. If they ask for top 10, give 10. If they ask for top 5, give 5. Don't artificially cap at 3-5 unless the instruction or data calls for that.
+- For lists with counts: format as "Theme name (count)" — e.g., "Leadership development (32)".
+- For quotes inside bullets: "phrase in original" (English translation).
+- TAKEAWAY: one optional sentence at the bottom of the slide, italics. Use when there's a clear synthesizing insight; leave empty if the bullets already speak for themselves.
 
 ═══════════════════════════════════════════════════════
 RETURN FORMAT — strict JSON only, no markdown, no backticks, no commentary
@@ -2087,7 +2113,7 @@ RETURN FORMAT — strict JSON only, no markdown, no backticks, no commentary
   "presentationTitle": "${eventName} Results",
   "slides": [
     {"category":"OPENING","icon":"✨","title":"...","points":["...","..."],"takeaway":"..."},
-    {"category":"QUESTION 1","icon":"💬","title":"...","points":["...","..."],"takeaway":"..."},
+    {"category":"QUESTION 1","icon":"💬","title":"...","points":["...","...","..."],"takeaway":"..."},
     {"category":"CLOSING","icon":"🙏","title":"Thank you","points":["..."],"takeaway":""}
   ]
 }
@@ -2949,6 +2975,47 @@ ${questionBlocks}`;
                         </div>
                       </div>
 
+                      {/* Analysis prompt — sets how the AI will analyze this question
+                          when you click "Generate Final Presentation". Edit any time. */}
+                      <div style={{marginBottom:"14px"}}>
+                        <button onClick={()=>toggleInstrExpand(q)}
+                          style={{background:"transparent",border:"none",padding:0,cursor:"pointer",
+                            fontSize:"12px",color:q.analysisInstruction?G:"#7aaa88",fontWeight:"600",
+                            textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:"3px"}}>
+                          {q.analysisInstruction
+                            ? `🧠 Analysis prompt set ✓  ${expandedInstr.has(q.id) ? "(hide)" : "(view / edit)"}`
+                            : `🧠 + Add analysis prompt for this question`}
+                        </button>
+                        {expandedInstr.has(q.id) && (
+                          <div style={{marginTop:"10px",padding:"14px",background:"#f4faf6",borderRadius:"10px",border:`1px solid ${G}`}}>
+                            <div style={{fontSize:"10px",fontWeight:"700",color:DG,marginBottom:"6px",letterSpacing:"1.5px",textTransform:"uppercase"}}>
+                              🧠 Analysis instruction for the final presentation
+                            </div>
+                            <p style={{fontSize:"11px",color:"#7aaa88",margin:"0 0 10px",lineHeight:"1.5"}}>
+                              Tells the AI how to summarize this question on its slide of the final presentation. Leave empty for a generic strategic summary.
+                            </p>
+                            <textarea
+                              value={instrDraft[q.id] ?? ""}
+                              onChange={e=>setInstrDraft(d=>({...d, [q.id]: e.target.value}))}
+                              rows={4}
+                              placeholder="e.g., List the top 5 themes participants mentioned, with a count of how many people raised each."
+                              style={{width:"100%",padding:"10px",border:`1px solid ${BD}`,borderRadius:"8px",
+                                fontSize:"13px",resize:"vertical",outline:"none",lineHeight:"1.5",fontFamily:"inherit",
+                                boxSizing:"border-box"}}
+                            />
+                            <div style={{display:"flex",gap:"6px",marginTop:"10px"}}>
+                              <SmallBtn onClick={()=>saveInstr(q.id)} color="green">💾 Save</SmallBtn>
+                              <SmallBtn onClick={()=>toggleInstrExpand(q)} color="white">Cancel</SmallBtn>
+                              {q.analysisInstruction && (
+                                <SmallBtn onClick={()=>{ setInstrDraft(d=>({...d, [q.id]: ""})); saveInstr(q.id); }} color="white">
+                                  Clear
+                                </SmallBtn>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       {/* Answers — collapsible */}
                       {!collapsedQs.has(q.id) && (
                         <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
@@ -3035,47 +3102,6 @@ ${questionBlocks}`;
                                 <span key={j} style={{marginRight:"8px"}}>{s?.slice(0,20)}…</span>
                               ))}
                             </p>
-                            {/* Analysis instruction toggle — your team fills this in before the event.
-                                Used by the final "Generate AI Presentation" button to tailor the
-                                analysis for each question. */}
-                            <div style={{marginTop:"10px"}}>
-                              <button onClick={()=>toggleInstrExpand(q)}
-                                style={{background:"transparent",border:"none",padding:0,cursor:"pointer",
-                                  fontSize:"11px",color:q.analysisInstruction?G:"#7aaa88",fontWeight:"500",
-                                  textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:"3px"}}>
-                                {q.analysisInstruction
-                                  ? `🧠 Analysis prompt set ✓  ${expandedInstr.has(q.id) ? "(hide)" : "(view / edit)"}`
-                                  : `🧠 + Add analysis prompt`}
-                              </button>
-                            </div>
-                            {expandedInstr.has(q.id) && (
-                              <div style={{marginTop:"10px",padding:"12px",background:"#f4faf6",borderRadius:"8px",border:`1px solid ${G}`}}>
-                                <div style={{fontSize:"10px",fontWeight:"700",color:DG,marginBottom:"6px",letterSpacing:"1.5px",textTransform:"uppercase"}}>
-                                  🧠 Analysis instruction for the final presentation
-                                </div>
-                                <p style={{fontSize:"11px",color:"#7aaa88",margin:"0 0 8px",lineHeight:"1.5"}}>
-                                  This instruction tells the AI how to summarize this question's responses on its slide of the final presentation. Leave empty to use a generic strategic summary.
-                                </p>
-                                <textarea
-                                  value={instrDraft[q.id] ?? ""}
-                                  onChange={e=>setInstrDraft(d=>({...d, [q.id]: e.target.value}))}
-                                  rows={4}
-                                  placeholder="e.g., List the top 5 themes participants mentioned, with a count of how many people raised each."
-                                  style={{width:"100%",padding:"10px",border:`1px solid ${BD}`,borderRadius:"6px",
-                                    fontSize:"12px",resize:"vertical",outline:"none",lineHeight:"1.5",fontFamily:"inherit",
-                                    boxSizing:"border-box"}}
-                                />
-                                <div style={{display:"flex",gap:"6px",marginTop:"8px"}}>
-                                  <SmallBtn onClick={()=>saveInstr(q.id)} color="green">💾 Save</SmallBtn>
-                                  <SmallBtn onClick={()=>toggleInstrExpand(q)} color="white">Cancel</SmallBtn>
-                                  {q.analysisInstruction && (
-                                    <SmallBtn onClick={()=>{ setInstrDraft(d=>({...d, [q.id]: ""})); saveInstr(q.id); }} color="white">
-                                      Clear
-                                    </SmallBtn>
-                                  )}
-                                </div>
-                              </div>
-                            )}
                           </div>
                         )}
                       </div>
