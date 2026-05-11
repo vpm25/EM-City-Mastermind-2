@@ -42,14 +42,18 @@ export default async function handler(req, res) {
         .single();
       if (error) return res.status(500).json({ error: error.message });
 
-      // Make the new session active. Also reset session_open and current_question_id
-      // so the new session starts in a clean state.
+      // Make the new session active. Also reset session_open, current_question_id,
+      // and all live_* fields so the new session starts in a clean state.
+      // (Otherwise a stale presentation from the previous session would show on /live.)
       await supabase
         .from("session_state")
         .update({
           active_session_id: data.id,
           session_open: false,
           current_question_id: null,
+          live_mode: "counter",
+          live_slide_idx: 0,
+          live_slides: null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", 1);
@@ -66,9 +70,14 @@ export default async function handler(req, res) {
         .from("session_state")
         .update({
           active_session_id: sessionId,
-          // Reset open state so the new active session starts fresh
+          // Reset open state AND clear any stale presentation pushed to /live
+          // by the previous session — otherwise /live would still show the old
+          // event's slides.
           session_open: false,
           current_question_id: null,
+          live_mode: "counter",
+          live_slide_idx: 0,
+          live_slides: null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", 1);
