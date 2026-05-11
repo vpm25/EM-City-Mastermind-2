@@ -970,21 +970,58 @@ Your job:
     });
   };
 
-  // ── On mount: load the active session info ──
-  // This is needed for the lang screen title and the /live screen — both
-  // need to know which event session is currently active. Without this,
-  // participants would see a generic title until polling kicks in.
+  // ── On mount + silent polling for active session info ──
+  // Needed for the lang screen title and the /live screen — both need to know
+  // which event session is currently active. Polls quietly every 60s so that
+  // if the admin switches sessions, participants see the new title within a
+  // minute without needing to refresh the page. Low frequency keeps backend
+  // load minimal (1,200 users × 1/min = ~20 req/sec — negligible).
+  //
+  // Also handles the cross-day scenario: someone leaves their tab open after
+  // PT&MT on Friday, comes back Saturday for CDMM. We detect the session
+  // change and reset their participant state so they can answer again.
   useEffect(() => {
-    fetch("/api/sessions")
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data) {
-          setSessions(data.sessions || []);
-          setActiveSessionId(data.activeSessionId);
-        }
-      })
-      .catch(() => {});
-  }, []);
+    const fetchSessions = () => {
+      fetch("/api/sessions")
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data) {
+            setSessions(data.sessions || []);
+            // Detect a session change AFTER initial mount and reset participant state
+            // so a user with a stale tab can answer the new session.
+            setActiveSessionId(prev => {
+              const newId = data.activeSessionId;
+              if (prev != null && newId != null && prev !== newId) {
+                // Session changed — wipe participant-side state so the user
+                // is treated as a fresh participant for the new event.
+                hasSubmittedRef.current = false;
+                sessionWasOpenRef.current = false;
+                answeredQIdRef.current = null;
+                setAnswers([""]);
+                setCurrentQId(null);
+                setSessionDone(false);
+                setWaitingNext(false);
+                try { localStorage.removeItem("participant_token"); } catch {}
+                setParticipantToken(null);
+                // Send them back to the language selection so they see the new event title clearly
+                if (["complete", "sessionDone", "waiting", "survey"].includes(screen)) {
+                  setScreen("lang");
+                }
+              }
+              return newId;
+            });
+          }
+        })
+        .catch(() => {});
+    };
+    fetchSessions(); // initial
+    // Only poll on participant-facing screens (skip admin to avoid duplicate
+    // polling there — admin already manages sessions explicitly via the dropdown).
+    if (["lang", "survey", "waiting", "complete", "sessionDone"].includes(screen)) {
+      const interval = setInterval(fetchSessions, 60_000); // every 60 seconds
+      return () => clearInterval(interval);
+    }
+  }, [screen]);
 
   // ── Poll responses every 5s when in admin mode ──
   useEffect(() => {
@@ -2476,6 +2513,21 @@ ${questionBlocks}`;
                 pointerEvents:"none"}}
             />
 
+            {/* Hidden refresh — top right corner, nearly invisible so it doesn't
+                distract the audience but is reachable if the admin needs it during
+                the event (e.g. to force a state re-sync). */}
+            <button
+              onClick={() => window.location.reload()}
+              title="Refresh the live screen"
+              style={{position:"absolute", top:"20px", right:"20px",
+                background:"transparent", border:"none", padding:"8px",
+                color:"rgba(255,255,255,0.15)", fontSize:"18px",
+                cursor:"pointer", lineHeight:"1"}}
+              onMouseOver={e => e.currentTarget.style.color = "rgba(255,255,255,0.5)"}
+              onMouseOut={e => e.currentTarget.style.color = "rgba(255,255,255,0.15)"}>
+              ↻
+            </button>
+
             <style>{`
               @keyframes liveCountPulse {
                 0%, 100% { transform: scale(1); }
@@ -2492,7 +2544,27 @@ ${questionBlocks}`;
 
       {/* ── LANGUAGE SELECT ── */}
       {screen==="lang" && (
-        <div className="center">
+        <div className="center" style={{position:"relative"}}>
+          {/* Subtle refresh button — top right corner.
+              For the rare case where polling hasn't picked up a session change yet
+              or the user simply wants to ensure they're on the right event. */}
+          <button
+            onClick={() => {
+              try { localStorage.removeItem("participant_token"); } catch {}
+              window.location.reload();
+            }}
+            title="Refresh — make sure you see the latest event"
+            style={{
+              position:"absolute", top:"20px", right:"24px",
+              background:"transparent", border:"none", padding:"8px 12px",
+              cursor:"pointer", color:"#7aaa88", fontSize:"12px",
+              display:"flex", alignItems:"center", gap:"6px",
+              borderRadius:"8px", fontFamily:"inherit", fontWeight:"500",
+            }}
+            onMouseOver={e => e.currentTarget.style.color = DG}
+            onMouseOut={e => e.currentTarget.style.color = "#7aaa88"}>
+            <span style={{fontSize:"14px"}}>↻</span> Refresh
+          </button>
           <div style={{maxWidth:"720px",width:"100%"}}>
             <div style={{textAlign:"center",marginBottom:"44px"}}>
               <div style={{display:"inline-flex",alignItems:"center",gap:"8px",background:DG,color:"#fff",
@@ -3523,15 +3595,6 @@ ${questionBlocks}`;
                             </div>
                           );
                         })}
-                      </div>
-                    )}
-
-                    {/* AI Summary for this question */}
-                    {qSummaries[q.id] && (
-                      <div className="fade" style={{margin:"0 0 12px 36px",padding:"12px 14px",background:"#fff",
-                        border:`2px solid ${BD}`,borderRadius:"10px",fontSize:"13px",color:"#3a5a46",lineHeight:"1.7",whiteSpace:"pre-wrap"}}>
-                        <div style={{fontSize:"10px",fontWeight:"700",color:G,letterSpacing:"1px",textTransform:"uppercase",marginBottom:"6px"}}>🤖 AI Summary</div>
-                        {qSummaries[q.id]}
                       </div>
                     )}
                   </div>
