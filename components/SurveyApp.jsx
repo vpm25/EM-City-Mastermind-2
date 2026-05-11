@@ -814,9 +814,17 @@ Your job:
       await fetch("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ live_mode: "counter" }),
+        body: JSON.stringify({
+          live_mode: "counter",
+          // Clear the slides too so a stale PPT doesn't sit in the DB after
+          // you've finished projecting — keeps the live state clean.
+          live_slides: null,
+          live_slide_idx: 0,
+        }),
       });
       setLiveMode("counter");
+      setLiveSlides(null);
+      setLiveSlideIdx(0);
     } catch (e) { /* ignore */ }
   };
 
