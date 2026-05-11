@@ -99,21 +99,35 @@ function Slide({ data, idx, total }) {
           <li key={i} style={{ display:"flex", alignItems:"flex-start", gap:"10px",
             fontSize:"14px", color:"rgba(255,255,255,.9)", lineHeight:"1.65" }}>
             <span style={{ width:"6px",height:"6px",borderRadius:"50%",background:"#fff",
-              flexShrink:0,marginTop:"9px",display:"inline-block" }} />{p}
+              flexShrink:0,marginTop:"9px",display:"inline-block" }} />
+            <span dangerouslySetInnerHTML={{__html: mdBold(p)}} />
           </li>
         ))}
       </ul>
       {data.takeaway && (
         <div style={{ marginTop:"22px", padding:"14px 18px", background:"rgba(255,255,255,.15)",
           borderRadius:"10px", borderLeft:"3px solid rgba(255,255,255,.6)",
-          fontSize:"13px", color:"#fff", fontStyle:"italic", lineHeight:"1.55" }}>
-          {data.takeaway}
-        </div>
+          fontSize:"13px", color:"#fff", fontStyle:"italic", lineHeight:"1.55" }}
+          dangerouslySetInnerHTML={{__html: mdBold(data.takeaway)}} />
       )}
       <span style={{ position:"absolute",bottom:"24px",right:"28px",fontSize:"10px",
         color:"rgba(255,255,255,.3)",fontWeight:"700" }}>{idx+1}/{total}</span>
     </div>
   );
+}
+
+// Tiny markdown helper: turns **bold text** into <strong> with extra emphasis.
+// Also escapes HTML to prevent injection from AI output.
+function mdBold(text) {
+  if (text == null) return "";
+  const escaped = String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+  return escaped.replace(/\*\*(.+?)\*\*/g,
+    '<strong style="color:#fff;font-weight:900">$1</strong>');
 }
 
 export default function App() {
@@ -1466,6 +1480,20 @@ ${ans}`;
         }
       } catch { /* logo optional — proceed without it */ }
 
+      // Helper: parse "text with **bold** parts" into pptxgenjs runs.
+      // Each segment becomes a { text, options } object that addText can consume.
+      const parseBold = (raw, baseOptions = {}) => {
+        if (raw == null) return [{ text: "", options: baseOptions }];
+        const parts = String(raw).split(/(\*\*[^*]+\*\*)/g);
+        return parts
+          .filter(p => p.length > 0)
+          .map(p => {
+            const m = p.match(/^\*\*(.+)\*\*$/);
+            if (m) return { text: m[1], options: { ...baseOptions, bold: true } };
+            return { text: p, options: { ...baseOptions } };
+          });
+      };
+
       const visible = slides.slides.filter((_, i) => !hiddenSlides.has(i));
       visible.forEach((s, i) => {
         const slide = pptx.addSlide();
@@ -1487,19 +1515,37 @@ ${ans}`;
           x: 0.5, y: 1.85, w: 12.3, h: 1.1,
           fontSize: 32, bold: true, color: "FFFFFF", fontFace: "Arial",
         });
-        // Bullet points
+        // Bullet points — each bullet becomes a paragraph with parsed bold runs
         if (Array.isArray(s.points) && s.points.length) {
-          slide.addText(
-            s.points.map(p => ({ text: p, options: { bullet: { code: "2022" }, paraSpaceAfter: 12 } })),
-            {
-              x: 0.5, y: 3.1, w: 12.3, h: s.takeaway ? 3 : 4,
-              fontSize: 16, color: "FFFFFF", fontFace: "Arial", valign: "top",
+          // For pptxgenjs, you build an array where each top-level entry is a
+          // paragraph (bullet). Within a paragraph you can have multiple runs
+          // with different styling. We set bullet+paraSpaceAfter on the FIRST
+          // run of each paragraph, and a line-break on the LAST run before
+          // the next bullet starts.
+          const allRuns = [];
+          s.points.forEach((p, idx) => {
+            const runs = parseBold(p);
+            runs.forEach((r, j) => {
+              const opts = { ...r.options };
+              if (j === 0) {
+                opts.bullet = { code: "2022" };
+                opts.paraSpaceAfter = 12;
+              }
+              allRuns.push({ text: r.text, options: opts });
+            });
+            // Force a paragraph break between bullets
+            if (idx < s.points.length - 1) {
+              allRuns.push({ text: "", options: { breakLine: true } });
             }
-          );
+          });
+          slide.addText(allRuns, {
+            x: 0.5, y: 3.1, w: 12.3, h: s.takeaway ? 3 : 4,
+            fontSize: 16, color: "FFFFFF", fontFace: "Arial", valign: "top",
+          });
         }
         // Takeaway box at the bottom (italic, on lighter background)
         if (s.takeaway) {
-          slide.addText(s.takeaway, {
+          slide.addText(parseBold(s.takeaway, { italic: true }), {
             x: 0.5, y: 6.2, w: 12.3, h: 0.7,
             fontSize: 14, italic: true, color: "FFFFFF", fontFace: "Arial",
             fill: { color: "2D7A47" }, // slightly lighter green panel
@@ -2099,8 +2145,9 @@ ${block}`;
     const nP = participantGroups.length;
     const nQ = presQs.length;
     const nResp = responses.length;
-    // 1 intro slide + 1 slide per question + 1 closing slide
-    const expectedSlides = 2 + nQ;
+    // Minimum: 1 opening + 1 per question + 1 closing.
+    // The AI may produce MORE slides if a question's content needs splitting.
+    const minSlides = 2 + nQ;
 
     // Active session name gives the presentation its title
     const activeSession = sessions.find(s => s.id === activeSessionId);
@@ -2173,34 +2220,51 @@ DATA SUMMARY (use these exact numbers)
 - ${nResp} individual response${nResp===1?"":"s"} collected total
 
 ═══════════════════════════════════════════════════════
-STRUCTURE — generate EXACTLY ${expectedSlides} slide${expectedSlides===1?"":"s"} in this order
+STRUCTURE — minimum ${minSlides} slides; generate MORE when a question's content is too large for one slide
 ═══════════════════════════════════════════════════════
 
 SLIDE 1 — OPENING
 A welcoming opener for "${eventName} Results". Mention ${nP} participants and ${nQ} questions truthfully. Energize the audience. 2-3 short bullets, one inspiring takeaway.
 
-${presQs.map((q, i) => `SLIDE ${i+2} — QUESTION ${i+1}
-For question: "${q.en}"
+${presQs.map((q, i) => `QUESTION ${i+1} SLIDES — for question: "${q.en}"
 
-Apply the team's instruction (or default) for this question.
-- If they asked for a list of N items: deliver N items.
-- If they asked for counts: include the counts.
-- If they asked for quotes: include the quotes (original language + English translation).
-- If they asked for a specific structure: follow it.
-You may split long content across the bullets and sub-points naturally. Use the "title" field for a clean slide heading and the "takeaway" field for the team's headline insight if appropriate.`).join("\n\n")}
+Apply the team's instruction (or default). Cover EVERYTHING they asked for, even if that means using multiple slides.
 
-SLIDE ${expectedSlides} — CLOSING
+How to split when content is large:
+- Count the items the analysis will produce.
+- 8 items or fewer: ONE slide.
+- 9 to 15 items: TWO slides. Categories become "QUESTION ${i+1} (Part 1)" and "QUESTION ${i+1} (Part 2)".
+- 16 or more items: THREE slides similarly.
+- Choose the split point at a natural boundary (top items vs long tail; one category per slide; etc.).
+
+FORMATTING — use markdown bold (wrap text with **double asterisks**) on KEY phrases inside bullets:
+- Bold the theme name or category label at the start of each bullet.
+- Bold counts when central: **(32 participants)**.
+- Bold the most important phrase in the takeaway.
+- Don't bold whole sentences — only keywords that should grab the eye on stage.
+- Example: "**Leadership development** **(32)** — most-cited theme, especially among Russian speakers."
+
+Other rules:
+- If counts asked: include exact counts.
+- If quotes asked: include original language + translation.
+- DO NOT include the same item twice across slides.
+- The takeaway field is OPTIONAL. Use it only on the LAST slide for that question, summarizing the overall pattern.`).join("\n\n")}
+
+CLOSING SLIDE
 A short, sincere closing thanking participants and acknowledging the value of their input. 2-3 bullets, one inspiring closing line as takeaway.
 
 ═══════════════════════════════════════════════════════
 VISUAL FORMAT GUIDELINES — your domain
 ═══════════════════════════════════════════════════════
-- TITLE: short and clear (≤10 words). Reflects the slide's content.
-- BULLETS (points array): each one self-contained. Length adapts to content — short and punchy when the team asked for themes, longer when they asked for items with quotes.
-- Number of bullets: AS MANY AS THE TEAM'S INSTRUCTION REQUIRES. If they ask for top 10, give 10. If they ask for top 5, give 5. Don't artificially cap at 3-5 unless the instruction or data calls for that.
-- For lists with counts: format as "Theme name (count)" — e.g., "Leadership development (32)".
+- TITLE: short and clear (10 words or less). For multi-part splits use "Top Themes — Part 1" / "Top Themes — Part 2".
+- BULLETS (points array): each one self-contained.
+- HARD LIMIT: never more than 8 bullets on a single slide. If content needs more, split into multiple slides.
+- BOLD KEY TERMS: use markdown **double asterisks** around the most important phrase in each bullet (theme name, count, key noun). This makes the slide scannable from across the room.
+- For lists with counts: format as "**Theme name** **(count)** — quote/detail" — e.g., "**Leadership development** **(32)** — 'we need direct mentorship'".
 - For quotes inside bullets: "phrase in original" (English translation).
-- TAKEAWAY: one optional sentence at the bottom of the slide, italics. Use when there's a clear synthesizing insight; leave empty if the bullets already speak for themselves.
+- TAKEAWAY: optional italic sentence at the bottom. Use only on the LAST slide for each question (the synthesis). May also contain **bold** on the punchline word.
+- DO NOT pad. If a question has only 3 themes, give 3 bullets — don't invent extras.
+- DO NOT repeat content. Each item appears on exactly one slide.
 
 ═══════════════════════════════════════════════════════
 RETURN FORMAT — strict JSON only, no markdown, no backticks, no commentary
@@ -2319,7 +2383,7 @@ ${questionBlocks}`;
                         lineHeight:"1.55"}}>
                         <span style={{display:"inline-block", width:"10px", height:"10px",
                           borderRadius:"50%", background:"#fff", flexShrink:0, marginTop:"14px"}} />
-                        <span>{p}</span>
+                        <span dangerouslySetInnerHTML={{__html: mdBold(p)}} />
                       </li>
                     ))}
                   </ul>
@@ -2330,9 +2394,8 @@ ${questionBlocks}`;
                     background:"rgba(255,255,255,0.12)", borderRadius:"12px",
                     borderLeft:"4px solid rgba(255,255,255,0.6)",
                     fontSize:"clamp(16px, 1.5vw, 22px)", color:"#fff",
-                    fontStyle:"italic", lineHeight:"1.5"}}>
-                    {current.takeaway}
-                  </div>
+                    fontStyle:"italic", lineHeight:"1.5"}}
+                    dangerouslySetInnerHTML={{__html: mdBold(current.takeaway)}} />
                 )}
               </div>
 
