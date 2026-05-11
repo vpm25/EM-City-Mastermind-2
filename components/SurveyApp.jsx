@@ -579,17 +579,41 @@ Your job:
         // Session closed
         if (!sessionData.session_open) {
           if (sessionWasOpenRef.current) {
-            // Session WAS open before = show thank you
+            // Session WAS open before = show thank you.
+            // IMPORTANT: do NOT clearInterval here. The admin may reopen the
+            // session (same QR, same link). If we stopped polling, the user
+            // would be stuck on "Thank you" even after we reopen the session.
+            // We keep polling so we can detect a reopen and bring them back.
             setSessionDone(true);
             setWaitingNext(false);
             setCurrentQId(null);
             setScreen("sessionDone");
-            try { localStorage.removeItem("participant_token"); } catch {}
-            clearInterval(interval);
+            // Keep the participant_token — we DON'T remove it, because if the
+            // session reopens (e.g., same event reopening), we want to know
+            // they already answered and NOT bounce them back to the form.
+            // The token only gets cleared when the active SESSION changes
+            // (handled in the cross-day reset effect).
           } else {
             // Session never opened = keep waiting
             setScreen("waiting");
           }
+          return;
+        }
+
+        // ── Session is open. Check if this is a REOPEN after we showed "Thank you"
+        // and reset the participant's state if so (so they can answer again).
+        if (screen === "sessionDone") {
+          // Admin reopened the session — wipe submitted state and send participant
+          // back to the language screen to start fresh with the reopened event.
+          hasSubmittedRef.current = false;
+          sessionWasOpenRef.current = true; // already was open, will be again
+          answeredQIdRef.current = null;
+          setSessionDone(false);
+          setAnswers([""]);
+          setCurrentQId(null);
+          try { localStorage.removeItem("participant_token"); } catch {}
+          setParticipantToken(null);
+          setScreen("lang");
           return;
         }
         const newQId = sessionData.current_question_id;
