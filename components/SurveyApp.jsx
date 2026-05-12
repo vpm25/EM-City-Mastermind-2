@@ -1645,6 +1645,10 @@ ${ans}`;
   };
 
   // ── Generate strategic one-pager (executive dashboard, JSON structured) ──
+  // Hybrid structure: one section per question (respecting each question's
+  // analysis prompt) PLUS a final cross-cutting synthesis section.
+  // Philosophy: CONTENT belongs to the team (their prompts); FORMAT belongs
+  // to the AI (narrative writing, executive tone).
   const generateOnePager = async () => {
     if (!responses.length) return;
     setLoadingOnePager(true); setOnePager(null);
@@ -1654,136 +1658,178 @@ ${ans}`;
     );
     const presQs = questions.filter(q => q.active !== false || answeredQIds.has(q.id));
 
-    const block = participantGroups.map(g =>
-      `Participant #${g.num} (${g.langName}):\n`+
-      presQs.map((q,i)=>`Q${i+1}: ${q.en}\nAnswer: ${answerFor(g, q, i)||"(no answer)"}`).join("\n")
-    ).join("\n\n");
-
     const nP = participantGroups.length;
     const nQ = presQs.length;
     const nResp = responses.length;
 
-    const prompt = `You are a world-class strategic executive consultant who designs board-ready one-page dashboards for Fortune 500 leadership teams. You combine the analytical rigor of McKinsey with the punchy clarity of a great brand strategist. Your work is famous for being scannable in 90 seconds and impossible to forget.
+    // Active session name for the title
+    const activeSession = sessions.find(s => s.id === activeSessionId);
+    const eventName = activeSession?.name || "Survey Results";
 
-You are now producing an EXECUTIVE DASHBOARD ONE-PAGER from a survey of ${nP} participant${nP===1?"":"s"} who answered ${nQ} question${nQ===1?"":"s"} (${nResp} total responses).
+    // Build per-question blocks: each carries the team's analysis instruction
+    // (if any) plus the responses for that question.
+    const questionBlocks = presQs.map((q, i) => {
+      const qResps = participantGroups
+        .map(g => ({ g, answer: answerFor(g, q, i) }))
+        .filter(({ answer }) => answer && String(answer).trim());
+
+      const responsesText = qResps.length
+        ? qResps.map(({g, answer}) => `- Participant #${g.num} (${g.langName}): ${answer}`).join("\n")
+        : "(no responses)";
+
+      const customInstr = (q.analysisInstruction || "").trim();
+      const instructionLine = customInstr
+        ? `═══ TEAM'S ANALYSIS INSTRUCTION FOR THIS QUESTION ═══
+${customInstr}
+═════════════════════════════════════════════════════
+The instruction above defines the CONTENT for this question's section.
+You expand it into prose form for the one-pager — but you must cover everything they asked for.`
+        : `═══ ANALYSIS INSTRUCTION ═══
+No specific instruction provided. Produce a narrative summary of 80-150 words: the main themes, patterns, and notable contrasts in the responses.`;
+
+      return `═══════════════════════════════════════════════════
+QUESTION ${i+1}: "${q.en}"
+
+${instructionLine}
+
+RESPONSES (${qResps.length} of ${nP}):
+${responsesText}`;
+    }).join("\n\n");
+
+    const prompt = `You are a world-class strategic executive consultant producing an EXECUTIVE ONE-PAGER from survey responses. This document is for senior leaders who have 90 seconds to absorb it. McKinsey-level rigor, brand-strategist clarity.
+
+═══════════════════════════════════════════════════════
+HOW TO READ THIS PROMPT
+═══════════════════════════════════════════════════════
+For each question below, the team has either:
+(a) provided a SPECIFIC ANALYSIS INSTRUCTION — in which case THE INSTRUCTION DEFINES THE CONTENT of that question's section. Cover it in full, but in NARRATIVE form (prose with quotes, not a bullet list).
+(b) provided NO instruction — in which case YOU decide the content per the default instructions.
+
+THE SPLIT IS SACRED:
+- CONTENT belongs to the team (when they wrote an instruction).
+- WRITING STYLE & FORMAT belong to you (prose, structure, executive voice).
+
+Unlike the PPT version, the one-pager has SPACE. Use it — write in flowing sentences with embedded counts, names, and quotes. Don't list 10 items as bullets; weave them into 1-2 paragraphs with the most important ones surfaced and the rest acknowledged ("...along with several others including X, Y, and Z").
 
 ═══════════════════════════════════════════════════════
 GROUNDING RULES — ABSOLUTE
 ═══════════════════════════════════════════════════════
-- Every claim, quote, theme, percentage, count, or segmentation MUST be derivable from the responses below. No exceptions.
-- DO NOT invent: numbers, percentages, demographics, cohort sizes, tenure groups, departments, regions, comparisons between subgroups, or any detail that is not explicitly in the data.
-- Quantitative claims must reflect the ACTUAL count in the data. When you CAN count something precisely (e.g., "leadership" appears in 4 out of 7 responses), state the exact number. When you CANNOT count precisely (themes that overlap, fuzzy boundaries, vague references), describe it qualitatively ("most", "a few", "one participant"). Never use approximate or estimated numbers — be exact or be qualitative.
-- DO NOT extrapolate. If a response says "leadership", you cannot claim it referred to "first-time leadership roles" or "executive development programs" unless those exact phrases are in the responses.
-- Every direct quote must be a near-verbatim phrase from the actual responses. Do not paraphrase quotes.
-- If the data is thin or a pattern is ambiguous, say so honestly. A hedged truth is more credible than a confident fabrication.
-- Be PUNCHY. Short sentences. Active voice.
-- Use the language of decisions, not descriptions. Say "rethink", "double down", "stop", not "consider exploring".
-- Output language: ENGLISH.
+- Every claim, quote, theme, count, or comparison MUST be derivable from the responses.
+- DO NOT invent: numbers, percentages, demographics, segments, regions, departments — anything not in the data.
+- Quantitative claims = exact counts. If you can't count precisely, describe qualitatively ("most", "a few", "one"). Never approximate.
+- DO NOT extrapolate. Stick to what people actually said.
+- Every direct quote must be a near-verbatim phrase from the actual responses.
+- If the data can't support what an instruction asks for, provide what it DOES support and note the limitation honestly.
+- Be PUNCHY. Short sentences. Active voice. Decision-oriented language ("rethink", "double down", "stop"), not description ("consider exploring").
 
 ${MULTILINGUAL_HANDLING}
-═══════════════════════════════════════════════════════
-STRUCTURE — DERIVE THE SECTIONS FROM THE DATA
-═══════════════════════════════════════════════════════
-This is the most important rule of this brief: section titles must come from THE DATA, not from a template.
-
-🚫 STRICTLY FORBIDDEN section titles (these are lazy and will be rejected):
-  • "Strengths" / "Fortalezas"
-  • "Opportunities" / "Oportunidades"
-  • "Weaknesses"
-  • "Blind spots" / "Puntos ciegos"
-  • "Where to act" / "Dónde actuar"
-  • "Recommendations"
-  • "Key findings"
-  • "Action items"
-  • "Pros and cons"
-  • Anything that sounds like a SWOT, retrospective, or generic consulting framework
-
-If your section title would fit equally well on ANY survey, it's the wrong title. It must be specific to THIS data.
-
-✅ GOOD section titles earn their place by being specific to what the data actually shows. Real examples (each could only describe a particular dataset):
-  • "The 35-vs-25 Divide"
-  • "Leadership Casts a Long Shadow"
-  • "What Two People Cannot Tell Us"
-  • "AI Surfaces — Without Being Asked"
-  • "When 'Good' and 'Bad' Both Mean Yes"
-  • "The Quote That Stops You"
-  • "Where the Energy Lives"
-  • "Signals From the Margins"
-  • "What's Missing From Every Answer"
-  • "The Word No One Used"
-
-Think like a journalist writing a magazine headline based on what they actually read, not a consultant filling a template. The reader should be intrigued by the section title alone — and every word of it should be defensible by pointing to the responses below.
-
-PROCESS for choosing your sections:
-1. Read all responses carefully and look for genuine patterns, contrasts, or signals.
-2. Group what you find into 3-6 themes that are SPECIFIC to this dataset.
-3. Name each theme with words that describe what's actually there — not generic consulting labels.
-4. If your title would fit on any other survey's report, rename it until it couldn't.
 
 ═══════════════════════════════════════════════════════
-OUTPUT FORMAT
+DATA SUMMARY
 ═══════════════════════════════════════════════════════
-Return ONLY valid JSON (no markdown, no backticks, no commentary). Use this schema:
+- Event: ${eventName}
+- ${nP} participant${nP===1?"":"s"} answered
+- ${nQ} question${nQ===1?"":"s"} asked
+- ${nResp} individual response${nResp===1?"":"s"} collected total
 
+═══════════════════════════════════════════════════════
+STRUCTURE (hybrid: per-question + cross-cutting synthesis)
+═══════════════════════════════════════════════════════
+
+PART I — EXECUTIVE SUMMARY (always)
+One paragraph (50-80 words) capturing the overall picture. Lead with the headline finding, then the tension or nuance, then the implication. What a leader remembers if they read nothing else.
+
+PART II — ONE SECTION PER QUESTION
+${presQs.map((q, i) => `Section "${q.en.length > 60 ? q.en.slice(0, 60) + '...' : q.en}":
+- Title: short and SPECIFIC to what THIS question's data shows (NOT generic like "Findings" or "Key insights"). Examples: "The Leadership Imperative", "What This Room Wants to Ask", "From Reflection to Action".
+- Body: prose form of the team's analysis instruction (or the default if no instruction). 100-200 words.
+- Include exact counts when the instruction asks for them.
+- Include 1-2 memorable quotes in original language + English translation in parentheses.`).join("\n\n")}
+
+PART III — CROSS-CUTTING SYNTHESIS (always — what makes this document executive-grade)
+2-3 cards that surface patterns BETWEEN the questions. Examples:
+- "From insight to action: What people said in Q1 mirrors what they committed to in Q3."
+- "The unmet hunger: Q2 shows participants asking what Q1 says they aren't yet learning."
+- "Leadership shows up everywhere: it dominates all three questions, suggesting where the next program should double down."
+These are NOT a summary — they are NEW insights you only get by reading the responses ACROSS questions.
+
+═══════════════════════════════════════════════════════
+SECTION TITLE GUIDELINES
+═══════════════════════════════════════════════════════
+🚫 FORBIDDEN section titles (lazy and will be rejected):
+  "Strengths", "Opportunities", "Weaknesses", "Blind spots",
+  "Where to act", "Recommendations", "Key findings",
+  "Action items", "Pros and cons", anything SWOT-like.
+
+✅ GOOD section titles are SPECIFIC to what THIS data shows:
+  "Leadership Casts a Long Shadow"
+  "What This Room Wants to Ask"
+  "From Reflection to Commitment"
+  "The Words Everyone Reached For"
+
+═══════════════════════════════════════════════════════
+OUTPUT FORMAT — strict JSON only
+═══════════════════════════════════════════════════════
 {
-  "title": "Short, evocative title that hints at the core finding (max 8 words). NOT generic.",
-  "metadata": "${nP} participant${nP===1?"":"s"} · ${nQ} question${nQ===1?"":"s"} · [add timeframe or event context if helpful]",
-  "executiveSummary": "ONE paragraph (50-80 words) capturing the overall picture. Lead with the headline finding, then the tension or nuance, then the implication. This is what a leader will remember if they read nothing else.",
+  "title": "Short evocative title that hints at the core finding (max 8 words)",
+  "metadata": "${nP} participant${nP===1?"":"s"} · ${nQ} question${nQ===1?"":"s"} · ${eventName}",
+  "executiveSummary": "ONE paragraph (50-80 words) — the headline finding + the tension + the implication.",
   "sections": [
     {
-      "icon": "single emoji that matches the section's tone (✅ ⚠️ 👁 🎯 💡 📊 🔍 🚦 🌱 🪞 🧭 🌊 etc.)",
-      "title": "Section title — drawn from what the data actually shows, NOT from a template",
+      "icon": "emoji matching tone (✅ ⚠️ 👁 🎯 💡 📊 🔍 🚦 🌱 🪞 🧭 🌊 etc.)",
+      "title": "Specific section title — drawn from the data",
       "cards": [
         {
-          "title": "Card heading — a specific finding (3-7 words)",
-          "body": "1-2 sentences with data + so-what. Be concrete. Use specific numbers or phrases from the data.",
-          "quote": "Optional: a memorable phrase from a participant. Under 15 words. Omit the field entirely if no quote earns inclusion."
+          "title": "Card heading — specific finding (3-7 words)",
+          "body": "1-3 sentences. Concrete. Use specific numbers and phrases from the data.",
+          "quote": "Optional: memorable participant phrase. Under 20 words. Include the original + translation if non-English. Omit field entirely if no quote earns inclusion."
         }
       ]
     }
   ],
   "tension": {
-    "label": "2-3 word label for the tension (optional)",
-    "left": "What one side / group / data signal said (5-10 words)",
-    "right": "What the other side / group / data signal said (5-10 words)"
+    "label": "2-3 word label",
+    "left": "What one side / group / signal said (5-10 words)",
+    "right": "What the other side said (5-10 words)"
   }
 }
 
 CONSTRAINTS:
-- 3 to 6 sections total. Quality over quantity. If a section doesn't have at least 2 strong cards, cut it.
-- 2 to 4 cards per section.
-- "tension" field is OPTIONAL — include it ONLY if there is a genuine, clear tension or contrast in the data. If there's no real tension, OMIT THE ENTIRE "tension" FIELD. Don't fabricate one.
-- Total content ~400-600 words across all cards. Fits on one printed page.
+- ${nQ + 1} to ${nQ + 2} sections total: ${nQ} question-sections + 1 cross-cutting synthesis section. Optionally a second cross-cutting section if the data warrants it.
+- Each question-section: 2-4 cards (the narrative of the team's instruction).
+- Cross-cutting section: 2-3 cards (each a pattern that crosses questions).
+- "tension" field is OPTIONAL — include ONLY if there's a genuine clear tension in the data. Omit entirely otherwise.
+- Total length: ~400-700 words across all cards. Fits one printed page.
 
-EXAMPLES OF STYLE (these are illustrations of HOW a card reads — NOT templates to fill in. Only write claims that you can defend by pointing to the actual responses below):
+EXAMPLES of card style (illustrative — DO NOT copy the content, only the tone):
 
 {
-  "title": "Leadership development resonates",
-  "body": "Surfaced as the single most-mentioned theme across the responses — strong signal that investment here will land.",
-  "quote": "Most valuable was learning to lead without authority"
+  "title": "Leadership development dominates",
+  "body": "Mentioned by 32 of 100 participants as the single most valuable takeaway, cutting across all language groups. Strongest signal: investment here will land.",
+  "quote": "Лидерство и развитие команды (Leadership and team development)"
 }
 
 {
   "title": "Recruitment without retention",
-  "body": "Participants describe pulling in new members but losing them quickly. Pipeline is leaky, not empty.",
+  "body": "Participants describe pulling new members in but losing them quickly. The pipeline is leaky, not empty.",
   "quote": "We recruit but it's not easy to retain them"
 }
-
-Critical: do NOT copy these example numbers or example quotes. They are placeholders showing tone. Your numbers and quotes must come from the actual data below.
 
 DO NOT produce content like:
   ✗ "Participants gave varied responses" (vacuous)
   ✗ "Communication is important" (banal)
   ✗ "More data is needed" (cop-out — say what specifically would help)
-  ✗ "Responses in Japanese were shorter than English" (linguistic, not strategic)
-  ✗ Fabricated subgroups: "First-year participants said X, senior ones said Y" — UNLESS the data actually distinguishes them
-  ✗ Invented percentages: "60% said X" — UNLESS you literally counted X and the percentage is accurate
+  ✗ "Responses came in 8 languages" (trivial)
+  ✗ Fabricated subgroups
+  ✗ Invented percentages
 
-ACTUAL SURVEY RESPONSES:
-${block}`;
+═══════════════════════════════════════════════════════
+ACTUAL SURVEY DATA — analyze this
+═══════════════════════════════════════════════════════
+${questionBlocks}`;
 
     try {
-      const raw = await callAI(prompt, 4000);
+      const raw = await callAI(prompt, 6000);
       const m = raw.match(/\{[\s\S]*\}/);
       if (!m) throw new Error("No JSON in response");
       const parsed = JSON.parse(m[0]);
